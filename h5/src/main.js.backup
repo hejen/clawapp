@@ -4,8 +4,6 @@ import { createChatPage, initChatUI, setSessionKey, loadHistory } from './chat-u
 import { initI18n, t, onLangChange } from './i18n.js'
 import { initTheme } from './theme.js'
 import { initOfflineHandler } from './offline-queue.js'
-import { authManager } from './auth.js'
-import { api } from './api.js'
 
 const STORAGE_KEY = 'clawapp-config'
 const GUIDE_KEY = 'clawapp-guide-shown'
@@ -162,47 +160,7 @@ function showPage(pageId) {
 
 let chatInitialized = false
 
-async function initApp() {
-  // Initialize authentication first
-  const authInfo = await authManager.init()
-
-  // JWT user authentication: skip setup page, connect directly
-  if (authInfo && authInfo.type === 'jwt') {
-    const config = getConfig()
-    const host = config?.host || window.location.hostname
-    const token = authInfo.token
-
-    // Create pages but hide setup page
-    const setupPage = createSetupPage()
-    const chatPage = createChatPage()
-    app.appendChild(setupPage)
-    app.appendChild(chatPage)
-
-    // Initialize offline handler
-    initOfflineHandler()
-
-    // Setup Gateway ready callback
-    wsClient.onReady((hello, sessionKey) => {
-      setSessionKey(sessionKey)
-      showPage('chat-page')
-      if (!chatInitialized) {
-        chatInitialized = true
-        initChatUI(() => {
-          wsClient.disconnect()
-          showPage('setup-page')
-          chatInitialized = false
-        })
-      }
-      requestAnimationFrame(() => loadHistory())
-      showGuideIfNeeded()
-    })
-
-    // Connect directly with JWT token
-    await connectWithToken(host, token)
-    return
-  }
-
-  // Token user or config-based auth: continue with existing flow
+function initApp() {
   const setupPage = createSetupPage()
   const chatPage = createChatPage()
   app.appendChild(setupPage)
@@ -214,20 +172,13 @@ async function initApp() {
   const tokenInput = document.getElementById('input-token')
   const errorEl = document.getElementById('setup-error')
 
-  // Pre-fill token from URL if available (token auth mode)
-  if (authInfo && authInfo.type === 'token') {
-    tokenInput.value = authInfo.token
-  }
-
   if (config) {
     hostInput.value = config.host
-    if (!authInfo || authInfo.type !== 'token') {
-      tokenInput.value = config.token
-    }
+    tokenInput.value = config.token
   }
 
   // 首次运行检测
-  if (!config?.token && (!authInfo || authInfo.type !== 'token')) {
+  if (!config?.token) {
     fetch('/api/setup-hint').then(r => r.json()).then(data => {
       if (data.ok && data.firstRun) {
         showFirstRunSetup(hostInput, errorEl)
@@ -284,12 +235,6 @@ async function initApp() {
     connectBtn.disabled = true
     connectBtn.textContent = t('setup.connecting')
     doConnect(config.host, config.token, errorEl, connectBtn)
-  } else if (authInfo && authInfo.type === 'token' && hostInput.value) {
-    // Auto-connect for token users with host from config
-    const host = hostInput.value.trim()
-    connectBtn.disabled = true
-    connectBtn.textContent = t('setup.connecting')
-    doConnect(host, authInfo.token, errorEl, connectBtn)
   }
 
   // 语言切换时重建连接页
@@ -371,16 +316,6 @@ function doConnect(host, token, errorEl, connectBtn) {
   wsClient.connect(host, token)
 }
 
-/**
- * Connect with JWT token (for authenticated users)
- * Simplified version of doConnect without UI elements
- */
-async function connectWithToken(host, token) {
-  wsClient.disconnect()
-  wsClient.connect(host, token)
-  // The onReady callback is already registered in initApp
-}
-
 /** 新用户引导 */
 function showGuideIfNeeded() {
   if (localStorage.getItem(GUIDE_KEY)) return
@@ -405,249 +340,6 @@ function showGuideIfNeeded() {
   overlay.querySelector('.guide-btn').onclick = () => overlay.remove()
   overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
   document.body.appendChild(overlay)
-}
-
-// ============ Login Page ============
-function showLoginPage() {
-  const loginHtml = `
-    <div id="loginPage" class="login-container">
-      <h1>OpenClaw Chat</h1>
-      <p class="subtitle">登录以继续</p>
-
-      <div id="loginError" class="error"></div>
-      <div id="loginSuccess" class="success"></div>
-
-      <div class="tabs">
-        <button class="tab active" data-tab="login">登录</button>
-        <button class="tab" data-tab="register">注册</button>
-      </div>
-
-      <form id="loginForm">
-        <div class="form-group">
-          <label for="username">用户名</label>
-          <input type="text" id="username" name="username" required autocomplete="username">
-        </div>
-
-        <div class="form-group">
-          <label for="password">密码</label>
-          <input type="password" id="password" name="password" required autocomplete="current-password">
-        </div>
-
-        <button type="submit" class="btn" id="loginBtn">
-          <span id="loginBtnText">登录</span>
-        </button>
-      </form>
-
-      <form id="registerForm" style="display: none;">
-        <div class="form-group">
-          <label for="regUsername">用户名</label>
-          <input type="text" id="regUsername" name="username" required autocomplete="username">
-        </div>
-
-        <div class="form-group">
-          <label for="regEmail">邮箱（可选）</label>
-          <input type="email" id="regEmail" name="email" autocomplete="email">
-        </div>
-
-        <div class="form-group">
-          <label for="regPassword">密码</label>
-          <input type="password" id="regPassword" name="password" required autocomplete="new-password">
-        </div>
-
-        <div class="form-group">
-          <label for="regPasswordConfirm">确认密码</label>
-          <input type="password" id="regPasswordConfirm" name="passwordConfirm" required autocomplete="new-password">
-        </div>
-
-        <button type="submit" class="btn" id="registerBtn">
-          <span id="registerBtnText">注册</span>
-        </button>
-      </form>
-    </div>
-
-    <style>
-      .login-container {
-        max-width: 400px;
-        margin: 100px auto;
-        padding: 40px;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      }
-      .login-container h1 {
-        text-align: center;
-        margin-bottom: 10px;
-      }
-      .subtitle {
-        text-align: center;
-        color: #666;
-        margin-bottom: 30px;
-      }
-      .tabs {
-        display: flex;
-        margin-bottom: 20px;
-        border-bottom: 1px solid #ddd;
-      }
-      .tab {
-        flex: 1;
-        padding: 10px;
-        border: none;
-        background: none;
-        cursor: pointer;
-        border-bottom: 2px solid transparent;
-      }
-      .tab.active {
-        border-bottom-color: #667eea;
-        color: #667eea;
-      }
-      .form-group {
-        margin-bottom: 15px;
-      }
-      .form-group label {
-        display: block;
-        margin-bottom: 5px;
-        font-weight: 500;
-      }
-      .form-group input {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #ddd;
-        border-radius: 6px;
-        font-size: 14px;
-      }
-      .btn {
-        width: 100%;
-        padding: 12px;
-        background: #667eea;
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-size: 16px;
-        cursor: pointer;
-      }
-      .btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-      .error {
-        background: #fee;
-        color: #c33;
-        padding: 10px;
-        border-radius: 6px;
-        margin-bottom: 15px;
-        display: none;
-      }
-      .error.show {
-        display: block;
-      }
-      .success {
-        background: #efe;
-        color: #3c3;
-        padding: 10px;
-        border-radius: 6px;
-        margin-bottom: 15px;
-        display: none;
-      }
-      .success.show {
-        display: block;
-      }
-    </style>
-  `
-
-  document.body.innerHTML = loginHtml
-
-  // Setup tab switching
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'))
-      tab.classList.add('active')
-
-      const tabName = tab.dataset.tab
-      if (tabName === 'login') {
-        document.getElementById('loginForm').style.display = 'block'
-        document.getElementById('registerForm').style.display = 'none'
-      } else {
-        document.getElementById('loginForm').style.display = 'none'
-        document.getElementById('registerForm').style.display = 'block'
-      }
-    })
-  })
-
-  // Setup login form
-  document.getElementById('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault()
-
-    const username = document.getElementById('username').value
-    const password = document.getElementById('password').value
-    const btn = document.getElementById('loginBtn')
-    const btnText = document.getElementById('loginBtnText')
-    const errorEl = document.getElementById('loginError')
-
-    // Reset messages
-    errorEl.classList.remove('show')
-    btn.disabled = true
-    btnText.textContent = '登录中...'
-
-    try {
-      const result = await authManager.login(username, password)
-      api.setToken(result.token)
-
-      // Reload page to enter chat
-      window.location.reload()
-    } catch (error) {
-      errorEl.textContent = error.message
-      errorEl.classList.add('show')
-      btn.disabled = false
-      btnText.textContent = '登录'
-    }
-  })
-
-  // Setup register form
-  document.getElementById('registerForm').addEventListener('submit', async (e) => {
-    e.preventDefault()
-
-    const username = document.getElementById('regUsername').value
-    const email = document.getElementById('regEmail').value
-    const password = document.getElementById('regPassword').value
-    const passwordConfirm = document.getElementById('regPasswordConfirm').value
-    const btn = document.getElementById('registerBtn')
-    const btnText = document.getElementById('registerBtnText')
-    const errorEl = document.getElementById('loginError')
-    const successEl = document.getElementById('loginSuccess')
-
-    // Reset messages
-    errorEl.classList.remove('show')
-    successEl.classList.remove('show')
-
-    // Validate
-    if (password !== passwordConfirm) {
-      errorEl.textContent = '两次输入的密码不一致'
-      errorEl.classList.add('show')
-      return
-    }
-
-    btn.disabled = true
-    btnText.textContent = '注册中...'
-
-    try {
-      await authManager.register(username, password, email)
-
-      successEl.textContent = '注册成功！请登录'
-      successEl.classList.add('show')
-
-      // Switch to login tab
-      setTimeout(() => {
-        document.querySelector('[data-tab="login"]').click()
-      }, 1500)
-    } catch (error) {
-      errorEl.textContent = error.message
-      errorEl.classList.add('show')
-    } finally {
-      btn.disabled = false
-      btnText.textContent = '注册'
-    }
-  })
 }
 
 initApp()
