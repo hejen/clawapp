@@ -1,12 +1,15 @@
 /**
  * 本地消息存储 - 使用 IndexedDB 实现离线消息持久化
- * 
+ *
  * 功能：
  * - 连接时自动加载本地缓存
  * - 发送/接收消息自动存入本地
  * - 断网时使用本地缓存
  * - 网络恢复后与服务器同步
  */
+
+import { authManager } from './auth.js'
+import { api } from './api.js'
 
 const DB_NAME = 'clawapp-messages'
 const DB_VERSION = 1
@@ -207,4 +210,73 @@ export async function getStorageUsage() {
     }
   }
   return null
+}
+
+/** 获取单个会话信息 */
+export async function getSession(sessionKey) {
+  try {
+    const db = await openDB()
+    return new Promise((resolve) => {
+      const tx = db.transaction(STORE_SESSIONS, 'readonly')
+      const store = tx.objectStore(STORE_SESSIONS)
+      const request = store.get(sessionKey)
+
+      request.onsuccess = () => resolve(request.result || null)
+      request.onerror = () => resolve(null)
+    })
+  } catch (e) {
+    console.error('[db] getSession error:', e)
+    return null
+  }
+}
+
+/**
+ * Sync sessions from server (for logged-in users)
+ */
+export async function syncSessionsFromServer() {
+  if (authManager.authType !== 'jwt') {
+    return; // Only sync for logged-in users
+  }
+
+  try {
+    const sessions = await api.listSessions();
+
+    for (const session of sessions) {
+      const existing = await getSession(session.gateway_session_id);
+
+      if (!existing) {
+        // New session from server, add to local storage
+        await saveSessionInfo({
+          sessionKey: session.gateway_session_id,
+          name: session.title || 'New Chat',
+          updatedAt: session.updated_at || Date.now(),
+          lastActivity: session.updated_at || Date.now()
+        });
+      }
+    }
+
+    console.log(`Synced ${sessions.length} sessions from server`);
+  } catch (error) {
+    console.error('Failed to sync sessions:', error);
+  }
+}
+
+/**
+ * Save session to server (for logged-in users)
+ */
+export async function saveSessionToServer(session) {
+  if (authManager.authType !== 'jwt') {
+    return; // Only save for logged-in users
+  }
+
+  try {
+    await api.createSession(
+      session.sessionKey,
+      session.agentId || 'default',
+      session.name
+    );
+    console.log('Session saved to server:', session.sessionKey);
+  } catch (error) {
+    console.error('Failed to save session to server:', error);
+  }
 }
