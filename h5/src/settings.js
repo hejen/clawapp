@@ -5,6 +5,7 @@
 import { getTheme, setTheme } from './theme.js'
 import { getLang, setLang, t, onLangChange } from './i18n.js'
 import { requestPermission, isSupported as isNotifySupported } from './notify.js'
+import { authManager } from './auth.js'
 
 const LAYOUT_KEY = 'clawapp-layout'
 
@@ -110,6 +111,11 @@ export function showSettings() {
         <button class="settings-disconnect-btn" id="settings-disconnect">
           ${t('settings.disconnect')}
         </button>
+        ${authManager.isAuthenticated() && authManager.getAuthInfo().type === 'jwt' ? `
+        <button class="settings-disconnect-btn" id="settings-logout" style="margin-top:8px;background:#e94560">
+          ${t('settings.logout')}
+        </button>
+        ` : ''}
       </div>
 
       <div class="settings-about">
@@ -228,6 +234,15 @@ export function showSettings() {
   panel.querySelector('#settings-disconnect').onclick = () => {
     closeSettings()
     _onDisconnect?.()
+  }
+
+  // 退出登录（仅 JWT 用户）
+  const logoutBtn = panel.querySelector('#settings-logout')
+  if (logoutBtn) {
+    logoutBtn.onclick = () => {
+      closeSettings()
+      authManager.logout()
+    }
   }
 
   document.body.appendChild(overlay)

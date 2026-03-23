@@ -163,10 +163,17 @@ function showPage(pageId) {
 let chatInitialized = false
 
 async function initApp() {
-  // Initialize authentication first
-  const authInfo = await authManager.init()
+  try {
+    // Initialize authentication first
+    const authInfo = await authManager.init()
 
-  // JWT user authentication: skip setup page, connect directly
+    // NO AUTH - Show login page for new users
+    if (!authInfo) {
+      showLoginPage()
+      return
+    }
+
+    // JWT user authentication: skip setup page, connect directly
   if (authInfo && authInfo.type === 'jwt') {
     const config = getConfig()
     const host = config?.host || window.location.hostname
@@ -316,6 +323,11 @@ async function initApp() {
     }
     ti.onkeydown = (e) => { if (e.key === 'Enter') btn.click() }
   })
+  } catch (error) {
+    console.error('Auth initialization failed:', error)
+    // Show login page on error
+    showLoginPage()
+  }
 }
 
 function doConnect(host, token, errorEl, connectBtn) {
@@ -411,56 +423,56 @@ function showGuideIfNeeded() {
 function showLoginPage() {
   const loginHtml = `
     <div id="loginPage" class="login-container">
-      <h1>OpenClaw Chat</h1>
-      <p class="subtitle">登录以继续</p>
+      <h1>${t('login.title')}</h1>
+      <p class="subtitle">${t('login.subtitle')}</p>
 
       <div id="loginError" class="error"></div>
       <div id="loginSuccess" class="success"></div>
 
       <div class="tabs">
-        <button class="tab active" data-tab="login">登录</button>
-        <button class="tab" data-tab="register">注册</button>
+        <button class="tab active" data-tab="login">${t('login.tab.login')}</button>
+        <button class="tab" data-tab="register">${t('login.tab.register')}</button>
       </div>
 
       <form id="loginForm">
         <div class="form-group">
-          <label for="username">用户名</label>
+          <label for="username">${t('login.username')}</label>
           <input type="text" id="username" name="username" required autocomplete="username">
         </div>
 
         <div class="form-group">
-          <label for="password">密码</label>
+          <label for="password">${t('login.password')}</label>
           <input type="password" id="password" name="password" required autocomplete="current-password">
         </div>
 
         <button type="submit" class="btn" id="loginBtn">
-          <span id="loginBtnText">登录</span>
+          <span id="loginBtnText">${t('login.btn')}</span>
         </button>
       </form>
 
       <form id="registerForm" style="display: none;">
         <div class="form-group">
-          <label for="regUsername">用户名</label>
+          <label for="regUsername">${t('login.username')}</label>
           <input type="text" id="regUsername" name="username" required autocomplete="username">
         </div>
 
         <div class="form-group">
-          <label for="regEmail">邮箱（可选）</label>
+          <label for="regEmail">${t('login.email')}</label>
           <input type="email" id="regEmail" name="email" autocomplete="email">
         </div>
 
         <div class="form-group">
-          <label for="regPassword">密码</label>
+          <label for="regPassword">${t('login.password')}</label>
           <input type="password" id="regPassword" name="password" required autocomplete="new-password">
         </div>
 
         <div class="form-group">
-          <label for="regPasswordConfirm">确认密码</label>
+          <label for="regPasswordConfirm">${t('login.confirm')}</label>
           <input type="password" id="regPasswordConfirm" name="passwordConfirm" required autocomplete="new-password">
         </div>
 
         <button type="submit" class="btn" id="registerBtn">
-          <span id="registerBtnText">注册</span>
+          <span id="registerBtnText">${t('login.register.btn')}</span>
         </button>
       </form>
     </div>
@@ -587,7 +599,7 @@ function showLoginPage() {
     // Reset messages
     errorEl.classList.remove('show')
     btn.disabled = true
-    btnText.textContent = '登录中...'
+    btnText.textContent = t('login.btn.loading')
 
     try {
       const result = await authManager.login(username, password)
@@ -599,7 +611,7 @@ function showLoginPage() {
       errorEl.textContent = error.message
       errorEl.classList.add('show')
       btn.disabled = false
-      btnText.textContent = '登录'
+      btnText.textContent = t('login.btn')
     }
   })
 
@@ -622,18 +634,18 @@ function showLoginPage() {
 
     // Validate
     if (password !== passwordConfirm) {
-      errorEl.textContent = '两次输入的密码不一致'
+      errorEl.textContent = t('login.error.mismatch')
       errorEl.classList.add('show')
       return
     }
 
     btn.disabled = true
-    btnText.textContent = '注册中...'
+    btnText.textContent = t('login.register.btn.loading')
 
     try {
       await authManager.register(username, password, email)
 
-      successEl.textContent = '注册成功！请登录'
+      successEl.textContent = t('login.register.success')
       successEl.classList.add('show')
 
       // Switch to login tab
@@ -645,7 +657,7 @@ function showLoginPage() {
       errorEl.classList.add('show')
     } finally {
       btn.disabled = false
-      btnText.textContent = '注册'
+      btnText.textContent = t('login.register.btn')
     }
   })
 }
