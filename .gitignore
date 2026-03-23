@@ -24,3 +24,8 @@ electron/node_modules/
 # node-device-key and notify history files
 server/.node-device-key.json
 server/.notify-history.json
+
+# Database files
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
