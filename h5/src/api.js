@@ -9,13 +9,18 @@
 export class API {
   constructor() {
     this.baseURL = window.location.origin;
+    // Token is synchronized via localStorage with authManager
+    // Both read/write the same 'jwt_token' key to stay in sync
     this.token = localStorage.getItem('jwt_token');
   }
 
   /**
    * Make authenticated API request
    */
-  async request(method, path, data = null) {
+  async request(method, path, data = null, timeout = 30000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
     const headers = { 'Content-Type': 'application/json' };
 
     if (this.token) {
@@ -24,21 +29,31 @@ export class API {
 
     const options = {
       method,
-      headers
+      headers,
+      signal: controller.signal
     };
 
     if (data) {
       options.body = JSON.stringify(data);
     }
 
-    const response = await fetch(this.baseURL + path, options);
+    try {
+      const response = await fetch(this.baseURL + path, options);
+      clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Request failed');
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: `Request failed (HTTP ${response.status})` }));
+        throw new Error(error.error || 'Request failed');
+      }
+
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout');
+      }
+      throw error;
     }
-
-    return response.json();
   }
 
   /**
@@ -46,6 +61,7 @@ export class API {
    */
   setToken(token) {
     this.token = token;
+    localStorage.setItem('jwt_token', token);
   }
 
   // ============ Token Management ============
