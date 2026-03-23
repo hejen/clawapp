@@ -21,10 +21,11 @@ class AuthManager {
 
     if (urlToken) {
       // Token access mode (public link)
-      console.log('Token access mode detected');
       this.authType = 'token';
       this.token = urlToken;
       localStorage.setItem('access_token', urlToken);
+      // Clear token from URL to prevent exposure in browser history
+      window.history.replaceState({}, '', window.location.pathname);
       return Promise.resolve({ type: 'token', token: urlToken });
     }
 
@@ -35,7 +36,6 @@ class AuthManager {
         // Verify token hasn't expired
         const payload = this.parseJWT(storedToken);
         if (payload && payload.exp * 1000 > Date.now()) {
-          console.log('JWT access mode detected');
           this.authType = 'jwt';
           this.token = storedToken;
           this.userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
@@ -49,7 +49,6 @@ class AuthManager {
     }
 
     // No valid auth found
-    console.log('No valid authentication found');
     return Promise.resolve(null);
   }
 
@@ -62,7 +61,11 @@ class AuthManager {
       if (parts.length !== 3) return null;
 
       const payload = parts[1];
-      const decoded = atob(payload);
+      // Convert base64url to base64
+      const fixed = payload.replace(/-/g, '+').replace(/_/g, '/');
+      // Add padding if needed
+      const padded = fixed + '='.repeat((4 - fixed.length % 4) % 4);
+      const decoded = atob(padded);
       return JSON.parse(decoded);
     } catch (e) {
       return null;
@@ -73,6 +76,13 @@ class AuthManager {
    * User login
    */
   async login(username, password) {
+    if (!username || !password) {
+      throw new Error('Username and password are required');
+    }
+    if (password.length < 6) {
+      throw new Error('Password must be at least 6 characters');
+    }
+
     const response = await fetch(`${this.apiBase}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -80,8 +90,8 @@ class AuthManager {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Login failed');
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error || `Login failed (HTTP ${response.status})`);
     }
 
     const data = await response.json();
@@ -101,6 +111,13 @@ class AuthManager {
    * User registration
    */
   async register(username, password, email = null) {
+    if (!username || !password) {
+      throw new Error('Username and password are required');
+    }
+    if (password.length < 6) {
+      throw new Error('Password must be at least 6 characters');
+    }
+
     const response = await fetch(`${this.apiBase}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -108,8 +125,8 @@ class AuthManager {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Registration failed');
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error || `Registration failed (HTTP ${response.status})`);
     }
 
     return response.json();
