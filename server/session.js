@@ -16,6 +16,10 @@ class SessionManager {
    * @returns {Array} - Filtered sessions
    */
   async filterSessions(gatewaySessions, authInfo) {
+    if (!authInfo || !authInfo.type) {
+      throw new Error('Invalid authInfo: missing type field');
+    }
+
     if (authInfo.type === 'user') {
       // Logged-in user: fetch from database
       const userSessions = await this.db.getUserSessions(authInfo.id);
@@ -23,6 +27,7 @@ class SessionManager {
 
       return gatewaySessions.filter(session => {
         const sessionId = session.id || session.sessionId;
+        if (!sessionId) return false; // Skip sessions without ID
         return sessionIds.has(sessionId);
       });
     } else {
@@ -31,6 +36,7 @@ class SessionManager {
 
       return gatewaySessions.filter(session => {
         const sessionId = session.id || session.sessionId;
+        if (!sessionId) return false; // Skip sessions without ID
         return connectionSessionIds.has(sessionId);
       });
     }
@@ -59,6 +65,9 @@ class SessionManager {
    * @param {Object} metadata - Additional metadata
    */
   async saveUserSession(userId, gatewaySessionId, agentId, title = null, metadata = null) {
+    if (!gatewaySessionId || !agentId) {
+      throw new Error('gatewaySessionId and agentId are required');
+    }
     return await this.db.saveSession(userId, gatewaySessionId, agentId, title, metadata);
   }
 
