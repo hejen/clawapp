@@ -36,10 +36,8 @@ export class Database {
       `CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
-        display_name TEXT,
-        avatar_url TEXT,
+        email TEXT UNIQUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )`,
@@ -48,35 +46,32 @@ export class Database {
       `CREATE TABLE IF NOT EXISTS access_tokens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         token TEXT UNIQUE NOT NULL,
-        user_id INTEGER NOT NULL,
+        agent_id TEXT NOT NULL,
+        source_label TEXT,
         is_active BOOLEAN DEFAULT 1,
         expires_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        created_by TEXT
       )`,
 
       // User sessions table
       `CREATE TABLE IF NOT EXISTS user_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        gateway_id TEXT NOT NULL,
+        user_id INTEGER,
+        gateway_session_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
         title TEXT,
-        model_id TEXT DEFAULT 'gpt-4o-mini',
+        metadata TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-        UNIQUE(user_id, gateway_id)
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )`
     ];
 
     const indexes = [
-      'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)',
-      'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
-      'CREATE INDEX IF NOT EXISTS idx_access_tokens_token ON access_tokens(token)',
-      'CREATE INDEX IF NOT EXISTS idx_access_tokens_user_id ON access_tokens(user_id)',
-      'CREATE INDEX IF NOT EXISTS idx_access_tokens_is_active ON access_tokens(is_active)',
-      'CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id)',
-      'CREATE INDEX IF NOT EXISTS idx_user_sessions_gateway_id ON user_sessions(gateway_id)'
+      'CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_tokens_token ON access_tokens(token)',
+      'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)'
     ];
 
     try {
@@ -140,14 +135,16 @@ export class Database {
 
   /**
    * Create a new user
+   * @param {string} username - Username
+   * @param {string} passwordHash - Hashed password
+   * @param {string} email - User email (optional)
    */
-  async createUser(userData) {
-    const { username, email, passwordHash, displayName, avatarUrl } = userData;
+  async createUser(username, passwordHash, email) {
     const sql = `
-      INSERT INTO users (username, email, password_hash, display_name, avatar_url)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO users (username, password_hash, email)
+      VALUES (?, ?, ?)
     `;
-    const result = await this.run(sql, [username, email, passwordHash, displayName, avatarUrl]);
+    const result = await this.run(sql, [username, passwordHash, email]);
     return this.findUserById(result.id);
   }
 
@@ -169,18 +166,20 @@ export class Database {
 
   /**
    * Update user information
+   * @param {number} id - User ID
+   * @param {object} updates - Fields to update (email, password_hash)
    */
   async updateUser(id, updates) {
     const fields = [];
     const values = [];
 
-    if (updates.displayName !== undefined) {
-      fields.push('display_name = ?');
-      values.push(updates.displayName);
+    if (updates.email !== undefined) {
+      fields.push('email = ?');
+      values.push(updates.email);
     }
-    if (updates.avatarUrl !== undefined) {
-      fields.push('avatar_url = ?');
-      values.push(updates.avatarUrl);
+    if (updates.password_hash !== undefined) {
+      fields.push('password_hash = ?');
+      values.push(updates.password_hash);
     }
 
     if (fields.length === 0) {
@@ -199,14 +198,18 @@ export class Database {
 
   /**
    * Create an access token
+   * @param {string} token - Token string
+   * @param {string} agentId - Agent ID
+   * @param {string} createdBy - Creator identifier
+   * @param {object} options - Optional parameters (source_label, expires_at)
    */
-  async createToken(tokenData) {
-    const { token, userId, expiresAt } = tokenData;
+  async createToken(token, agentId, createdBy, options = {}) {
+    const { sourceLabel, expiresAt } = options;
     const sql = `
-      INSERT INTO access_tokens (token, user_id, expires_at)
-      VALUES (?, ?, ?)
+      INSERT INTO access_tokens (token, agent_id, source_label, expires_at, created_by)
+      VALUES (?, ?, ?, ?, ?)
     `;
-    const result = await this.run(sql, [token, userId, expiresAt]);
+    const result = await this.run(sql, [token, agentId, sourceLabel, expiresAt, createdBy]);
     return this.findToken(result.id);
   }
 
@@ -239,34 +242,36 @@ export class Database {
   }
 
   /**
-   * List all tokens for a user
+   * List all tokens for an agent
+   * @param {string} agentId - Agent ID
    */
-  async listTokens(userId) {
+  async listTokens(agentId) {
     const sql = `
       SELECT * FROM access_tokens
-      WHERE user_id = ?
+      WHERE agent_id = ?
       ORDER BY created_at DESC
     `;
-    return await this.all(sql, [userId]);
+    return await this.all(sql, [agentId]);
   }
 
   // ==================== Session Operations ====================
 
   /**
    * Save or update a user session
+   * @param {number} userId - User ID
+   * @param {string} gatewaySessionId - Gateway session ID
+   * @param {string} agentId - Agent ID
+   * @param {string} title - Session title
+   * @param {object} metadata - Additional metadata (optional)
    */
-  async saveSession(sessionData) {
-    const { userId, gatewayId, title, modelId } = sessionData;
+  async saveSession(userId, gatewaySessionId, agentId, title, metadata = null) {
+    const metadataJson = metadata ? JSON.stringify(metadata) : null;
     const sql = `
-      INSERT INTO user_sessions (user_id, gateway_id, title, model_id)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(user_id, gateway_id) DO UPDATE SET
-        title = excluded.title,
-        model_id = excluded.model_id,
-        updated_at = CURRENT_TIMESTAMP
+      INSERT INTO user_sessions (user_id, gateway_session_id, agent_id, title, metadata)
+      VALUES (?, ?, ?, ?, ?)
     `;
-    await this.run(sql, [userId, gatewayId, title, modelId]);
-    return this.findSessionByGatewayId(gatewayId);
+    const result = await this.run(sql, [userId, gatewaySessionId, agentId, title, metadataJson]);
+    return this.findSessionById(result.id);
   }
 
   /**
@@ -282,11 +287,21 @@ export class Database {
   }
 
   /**
-   * Find session by gateway ID
+   * Find session by gateway session ID
+   * @param {string} gatewaySessionId - Gateway session ID
    */
-  async findSessionByGatewayId(gatewayId) {
-    const sql = 'SELECT * FROM user_sessions WHERE gateway_id = ?';
-    return await this.get(sql, [gatewayId]);
+  async findSessionByGatewayId(gatewaySessionId) {
+    const sql = 'SELECT * FROM user_sessions WHERE gateway_session_id = ?';
+    return await this.get(sql, [gatewaySessionId]);
+  }
+
+  /**
+   * Find session by ID
+   * @param {number} id - Session ID
+   */
+  async findSessionById(id) {
+    const sql = 'SELECT * FROM user_sessions WHERE id = ?';
+    return await this.get(sql, [id]);
   }
 
   /**

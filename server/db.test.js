@@ -61,13 +61,7 @@ async function runTests() {
     });
 
     // Test 2: Create user
-    const user = await db.createUser({
-      username: 'testuser',
-      email: 'test@example.com',
-      passwordHash: 'hash123',
-      displayName: 'Test User',
-      avatarUrl: null
-    });
+    const user = await db.createUser('testuser', 'hash123', 'test@example.com');
     testUserId = user.id;
     test('Test 2: Create user', () => {
       assert(user, 'User should be created');
@@ -83,15 +77,15 @@ async function runTests() {
     });
 
     // Test 4: Create and find token
-    const token = await db.createToken({
-      token: 'test-token-123',
-      userId: testUserId,
+    const token = await db.createToken('test-token-123', 'agent-001', 'system', {
+      sourceLabel: 'test',
       expiresAt: null
     });
     testTokenId = token.id;
     test('Test 4: Create token', () => {
       assert(token, 'Token should be created');
       assert(token.token === 'test-token-123', 'Token should match');
+      assert(token.agent_id === 'agent-001', 'Agent ID should match');
     });
 
     const activeToken = await db.findActiveToken('test-token-123');
@@ -102,7 +96,7 @@ async function runTests() {
     });
 
     // Test 5: List tokens
-    const tokens = await db.listTokens(testUserId);
+    const tokens = await db.listTokens('agent-001');
     test('Test 5: List tokens', () => {
       assert(Array.isArray(tokens), 'Tokens should be an array');
       assert(tokens.length === 1, 'Should have one token');
@@ -110,16 +104,18 @@ async function runTests() {
     });
 
     // Test 6: Save and retrieve session
-    const session = await db.saveSession({
-      userId: testUserId,
-      gatewayId: 'gateway-123',
-      title: 'Test Session',
-      modelId: 'gpt-4o-mini'
-    });
+    const session = await db.saveSession(
+      testUserId,
+      'gateway-session-123',
+      'agent-001',
+      'Test Session',
+      { model: 'gpt-4o-mini' }
+    );
     testSessionId = session.id;
     test('Test 6: Save session', () => {
       assert(session, 'Session should be created');
-      assert(session.gateway_id === 'gateway-123', 'Gateway ID should match');
+      assert(session.gateway_session_id === 'gateway-session-123', 'Gateway session ID should match');
+      assert(session.agent_id === 'agent-001', 'Agent ID should match');
       assert(session.title === 'Test Session', 'Title should match');
     });
 
