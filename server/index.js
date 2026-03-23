@@ -18,7 +18,7 @@ import { dirname, join } from 'path';
 import { randomUUID, randomBytes, generateKeyPairSync, createHash, sign as ed25519Sign, createPrivateKey } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
 import Database from './db.js';
-import { default: AuthManager } from './auth.js';
+import AuthManager from './auth.js';
 import { router as apiRouter, requireAuth } from './api.js';
 import sessionManager from './session.js';
 
@@ -748,8 +748,9 @@ const authManager = new AuthManager(db, JWT_SECRET);
 // 等待数据库初始化
 await db.init();
 
-// 将 authManager 和 sessionManager 注入到请求中
+// 将 db、authManager 和 sessionManager 注入到请求中
 app.use((req, res, next) => {
+  req.db = db;
   req.authManager = authManager;
   req.sessionManager = sessionManager;
   next();
