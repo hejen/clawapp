@@ -17,6 +17,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { randomUUID, randomBytes, generateKeyPairSync, createHash, sign as ed25519Sign, createPrivateKey } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
+import Database from './db.js';
+import { default: AuthManager } from './auth.js';
+import { router as apiRouter, requireAuth } from './api.js';
+import sessionManager from './session.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -727,12 +731,33 @@ app.use((req, res, next) => {
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
+
+// ==================== 认证系统初始化 ====================
+
+const DB_PATH = join(__dirname, 'data', 'chat.db');
+const db = new Database(DB_PATH);
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const authManager = new AuthManager(db, JWT_SECRET);
+
+// 等待数据库初始化
+await db.init();
+
+// 将 authManager 和 sessionManager 注入到请求中
+app.use((req, res, next) => {
+  req.authManager = authManager;
+  req.sessionManager = sessionManager;
+  next();
+});
+
+// ==================== API 路由 ====================
+
+app.use('/api', apiRouter);
 
 // 健康检查
 app.get('/health', (req, res) => {
