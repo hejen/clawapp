@@ -157,6 +157,15 @@ export class Database {
   }
 
   /**
+   * Find user by email
+   */
+  async findUserByEmail(email) {
+    if (!email) return null;
+    const sql = 'SELECT * FROM users WHERE email = ?';
+    return await this.get(sql, [email]);
+  }
+
+  /**
    * Find user by ID
    */
   async findUserById(id) {
@@ -271,7 +280,7 @@ export class Database {
       VALUES (?, ?, ?, ?, ?)
     `;
     const result = await this.run(sql, [userId, gatewaySessionId, agentId, title, metadataJson]);
-    return this.findSessionById(result.id);
+    return result.id;
   }
 
   /**
@@ -323,6 +332,50 @@ export class Database {
     `;
     await this.run(sql, [title, sessionId]);
     return this.get('SELECT * FROM user_sessions WHERE id = ?', [sessionId]);
+  }
+
+  /**
+   * Delete session by user ID and agent ID
+   */
+  async deleteSessionByUserAndAgent(userId, agentId) {
+    const sql = 'DELETE FROM user_sessions WHERE user_id = ? AND agent_id = ?';
+    return await this.run(sql, [userId, agentId]);
+  }
+
+  /**
+   * Get or create a user's default session
+   * Returns the most recent session or creates a new one for the user
+   * @param {number} userId - User ID
+   * @param {string} agentId - Agent ID (default: 'main')
+   */
+  async getOrCreateUserSession(userId, agentId = 'main') {
+    // First, try to get the most recent session for this user
+    const sessions = await this.getUserSessions(userId);
+    if (sessions && sessions.length > 0) {
+      // Return the most recent session
+      return sessions[0];
+    }
+
+    // No session exists, create a new one
+    const title = 'My Session';
+    const gatewaySessionId = `agent:${agentId}:${userId}`;
+    return await this.saveSession(userId, gatewaySessionId, agentId, title);
+  }
+
+  /**
+   * Get a user's session without creating a new one
+   * Returns the most recent session or null if none exists
+   * @param {number} userId - User ID
+   * @param {string} agentId - Agent ID (default: 'main')
+   */
+  async getUserSession(userId, agentId = 'main') {
+    const sessions = await this.getUserSessions(userId);
+    if (sessions && sessions.length > 0) {
+      // Return the most recent session
+      return sessions[0];
+    }
+    // No session exists, return null
+    return null;
   }
 
   /**

@@ -34,6 +34,9 @@ router.post('/auth/register', async (req, res) => {
     if (error.message === 'Username already exists') {
       return res.status(409).json({ error: '用户名已存在' });
     }
+    if (error.message === 'Email already exists') {
+      return res.status(409).json({ error: '邮箱已被使用' });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -125,7 +128,21 @@ router.delete('/tokens/:token', requireAuth, async (req, res) => {
 // GET /api/sessions - Get user sessions
 router.get('/sessions', requireAuth, async (req, res) => {
   try {
-    const sessions = await req.db.getUserSessions(req.user.id);
+    const dbSessions = await req.db.getUserSessions(req.user.id);
+
+    // Transform to match Gateway sessions.list format
+    // Use gateway_session_id for proper session isolation
+    const sessions = dbSessions.map(s => ({
+      id: s.id,
+      sessionKey: s.gateway_session_id,
+      key: s.gateway_session_id,
+      agentId: s.agent_id,
+      title: s.title,
+      createdAt: s.created_at,
+      updatedAt: s.updated_at,
+      lastActivity: s.updated_at
+    }));
+
     res.json(sessions);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -149,10 +166,7 @@ router.post('/sessions', requireAuth, async (req, res) => {
       metadata
     );
 
-    const session = await req.db.get(
-      'SELECT * FROM user_sessions WHERE id = ?',
-      [sessionId]
-    );
+    const session = await req.db.findSessionById(sessionId);
 
     res.status(201).json(session);
   } catch (error) {
@@ -163,7 +177,19 @@ router.post('/sessions', requireAuth, async (req, res) => {
 // DELETE /api/sessions/:id - Delete session
 router.delete('/sessions/:id', requireAuth, async (req, res) => {
   try {
-    await req.db.deleteSession(req.params.id);
+    const sessionId = req.params.id;
+
+    // Check if :id is a number (database ID) or sessionKey string
+    if (/^\d+$/.test(sessionId)) {
+      // Delete by database ID
+      await req.db.deleteSession(sessionId);
+    } else {
+      // Delete by sessionKey (format: agent:xxx:main)
+      // First find the session by user_id and agent_id
+      const agentId = sessionId.split(':')[1];
+      await req.db.deleteSessionByUserAndAgent(req.user.id, agentId);
+    }
+
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -202,7 +228,11 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Token 无效' });
   }
 
-  req.user = decoded;
+  // Normalize user object - JWT payload has userId, but we also want id for consistency
+  req.user = {
+    ...decoded,
+    id: decoded.userId  // Add id field for consistency in API endpoints
+  };
   next();
 }
 

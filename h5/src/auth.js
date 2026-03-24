@@ -3,23 +3,35 @@
  * Handles JWT and token-based authentication for the frontend
  */
 
+import { getApiBase } from './config.js';
+import { clearUserLocalStorage } from './message-db.js';
+
 class AuthManager {
   constructor() {
     this.authType = null; // 'jwt' | 'token' | null
     this.token = null;
     this.userInfo = null;
-    this.apiBase = window.location.origin;
+    this.apiBase = getApiBase();
+  }
+
+  /**
+   * Refresh apiBase (call this after config changes)
+   */
+  refreshApiBase() {
+    this.apiBase = getApiBase();
   }
 
   /**
    * Initialize authentication on page load
    */
   init() {
+    console.log('[Auth init] Starting authentication initialization');
     // Check URL for token parameter (public links)
     const urlParams = new URLSearchParams(window.location.search);
     const urlToken = urlParams.get('t');
 
     if (urlToken) {
+      console.log('[Auth init] Found URL token, using token mode');
       // Token access mode (public link)
       this.authType = 'token';
       this.token = urlToken;
@@ -31,23 +43,31 @@ class AuthManager {
 
     // Check for stored JWT (logged-in user)
     const storedToken = localStorage.getItem('jwt_token');
+    console.log('[Auth init] JWT token in localStorage:', !!storedToken);
     if (storedToken) {
       try {
         // Verify token hasn't expired
         const payload = this.parseJWT(storedToken);
+        console.log('[Auth init] JWT payload:', payload);
         if (payload && payload.exp * 1000 > Date.now()) {
+          console.log('[Auth init] JWT token valid, returning JWT auth');
           this.authType = 'jwt';
           this.token = storedToken;
           this.userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
+          console.log('[Auth init] Final authInfo:', { type: 'jwt', user: this.userInfo });
           return Promise.resolve({ type: 'jwt', token: storedToken, user: this.userInfo });
+        } else {
+          console.log('[Auth init] JWT token expired');
         }
       } catch (e) {
+        console.error('[Auth init] JWT token invalid:', e);
         // Token invalid, clear it
         localStorage.removeItem('jwt_token');
         localStorage.removeItem('user_info');
       }
     }
 
+    console.log('[Auth init] No valid auth found, returning null');
     // No valid auth found
     return Promise.resolve(null);
   }
@@ -83,7 +103,10 @@ class AuthManager {
       throw new Error('Password must be at least 6 characters');
     }
 
-    const response = await fetch(`${this.apiBase}/api/auth/login`, {
+    // Dynamically get API base URL
+    const apiBase = getApiBase();
+
+    const response = await fetch(`${apiBase}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -95,6 +118,10 @@ class AuthManager {
     }
 
     const data = await response.json();
+
+    // Clear previous user's data before storing new credentials
+    // This prevents session data leakage between users
+    clearUserLocalStorage();
 
     // Store credentials
     this.authType = 'jwt';
@@ -118,18 +145,36 @@ class AuthManager {
       throw new Error('Password must be at least 6 characters');
     }
 
-    const response = await fetch(`${this.apiBase}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, email })
-    });
+    // Dynamically get API base URL
+    const apiBase = getApiBase();
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => null);
-      throw new Error(error?.error || `Registration failed (HTTP ${response.status})`);
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+    try {
+      const response = await fetch(`${apiBase}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, email }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || `Registration failed (HTTP ${response.status})`);
+      }
+
+      return response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Registration request timed out. Please try again.');
+      }
+      throw error;
     }
-
-    return response.json();
   }
 
   /**
@@ -161,6 +206,9 @@ class AuthManager {
    * Logout
    */
   logout() {
+    // Clear all user-specific data before logout
+    clearUserLocalStorage();
+
     localStorage.removeItem('jwt_token');
     localStorage.removeItem('user_info');
     localStorage.removeItem('access_token');

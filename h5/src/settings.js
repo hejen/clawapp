@@ -8,8 +8,24 @@ import { requestPermission, isSupported as isNotifySupported } from './notify.js
 import { authManager } from './auth.js'
 
 const LAYOUT_KEY = 'clawapp-layout'
+const DETAILED_MODE_KEY = 'clawapp-detailed-mode'
 
 let _onDisconnect = null
+
+/**
+ * 获取详细模式设置
+ */
+export function getDetailedMode() {
+  const value = localStorage.getItem(DETAILED_MODE_KEY)
+  return value === 'true'  // 默认 false (简洁模式)
+}
+
+/**
+ * 设置详细模式
+ */
+export function setDetailedMode(enabled) {
+  localStorage.setItem(DETAILED_MODE_KEY, enabled ? 'true' : 'false')
+}
 
 function getLayout() {
   return localStorage.getItem(LAYOUT_KEY) || 'auto'
@@ -42,6 +58,7 @@ export function showSettings() {
   const currentTheme = getTheme()
   const currentLang = getLang()
   const currentLayout = getLayout()
+  const currentDetailedMode = getDetailedMode()
 
   panel.innerHTML = `
     <div class="cmd-panel-header">
@@ -91,6 +108,19 @@ export function showSettings() {
         </div>
       </div>
 
+      <div class="settings-section">
+        <div class="settings-label">${t('settings.detailedMode')}</div>
+        <div class="settings-desc" style="font-size:12px;color:#666;margin-bottom:8px">${t('settings.detailedMode.desc')}</div>
+        <div class="settings-toggle-group" id="detailed-mode-toggle">
+          <button class="settings-toggle ${!currentDetailedMode ? 'active' : ''}" data-value="false">
+            ${t('settings.detailedMode.simple')}
+          </button>
+          <button class="settings-toggle ${currentDetailedMode ? 'active' : ''}" data-value="true">
+            ${t('settings.detailedMode.detailed')}
+          </button>
+        </div>
+      </div>
+
       <div class="settings-section" style="margin-top:16px">
         <div class="settings-label">${t('settings.notify')}</div>
         <div id="notify-section">${renderNotifySection()}</div>
@@ -120,21 +150,15 @@ export function showSettings() {
 
       <div class="settings-about">
         <div class="settings-about-header">
-          <span class="settings-about-logo">🐾</span>
+          <span class="settings-about-logo">💬</span>
           <div>
-            <div class="settings-about-name">ClawApp</div>
+            <div class="settings-about-name">OpenClaw Chat</div>
             <div class="settings-about-ver">${t('about.version')} ${__APP_VERSION__}</div>
           </div>
         </div>
         <div class="settings-about-links">
-          <a href="https://clawapp.qt.cool" target="_blank" rel="noopener">${t('about.homepage')}</a>
-          <a href="https://github.com/qingchencloud/clawapp" target="_blank" rel="noopener">${t('about.github')}</a>
-          <a href="https://cftunnel.qt.cool" target="_blank" rel="noopener">${t('about.cftunnel')}</a>
-          <a href="https://github.com/qingchencloud/clawapp/releases" target="_blank" rel="noopener">${t('about.community')}</a>
-          <a href="https://qt.cool/c/feishu" target="_blank" rel="noopener">${t('about.feishu')}</a>
-        </div>
-        <div class="settings-about-footer">
-          MIT ${t('about.license')} · ${t('about.copyright')}
+          <a href="https://github.com/openclaw/openclaw" target="_blank" rel="noopener">OpenClaw</a>
+          <a href="https://github.com/openclaw/openclaw-chat" target="_blank" rel="noopener">Source Code</a>
         </div>
       </div>
     </div>
@@ -171,6 +195,18 @@ export function showSettings() {
       setLayout(btn.dataset.value)
       panel.querySelectorAll('#layout-toggle .settings-toggle').forEach(b => b.classList.remove('active'))
       btn.classList.add('active')
+    }
+  })
+
+  // 详细模式切换
+  panel.querySelectorAll('#detailed-mode-toggle .settings-toggle').forEach(btn => {
+    btn.onclick = () => {
+      const value = btn.dataset.value === 'true'
+      setDetailedMode(value)
+      panel.querySelectorAll('#detailed-mode-toggle .settings-toggle').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      // 触发自定义事件，通知其他模块设置已更改
+      window.dispatchEvent(new CustomEvent('detailed-mode-change', { detail: { enabled: value } }))
     }
   })
 

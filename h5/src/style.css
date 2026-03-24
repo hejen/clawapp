@@ -597,6 +597,36 @@ html, body {
   30% { transform: translateY(-6px); opacity: 1; }
 }
 
+/* 处理指示器样式（简洁模式） */
+.processing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.processing-indicator .dot {
+  width: 8px;
+  height: 8px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  animation: processing-pulse 1.4s infinite;
+}
+
+.processing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+.processing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+.processing-indicator .processing-text {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@keyframes processing-pulse {
+  0%, 60%, 100% { transform: scale(0.8); opacity: 0.4; }
+  30% { transform: scale(1.1); opacity: 1; }
+}
+
 .chat-input-area {
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);

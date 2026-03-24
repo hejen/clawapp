@@ -3,13 +3,24 @@ import { renderMarkdown } from './markdown.js'
 import { initMedia, pickImage, pickMedia, getAttachments, clearAttachments, hasAttachments, showLightbox } from './media.js'
 import { initCommands, showCommands } from './commands.js'
 import { t, formatRelativeTime } from './i18n.js'
-import { initSettings, showSettings } from './settings.js'
+import { initSettings, showSettings, getDetailedMode } from './settings.js'
 import { saveMessage, saveMessages, getLocalMessages, clearSessionMessages, isStorageAvailable, saveSessionInfo } from './message-db.js'
 import { requestPermission, showNotification, isSupported as isNotifySupported } from './notify.js'
 import { initSessionPicker, setPickerSessionKey, showSessionPicker } from './session-picker.js'
+import { authManager } from './auth.js'
 
 const STORAGE_SESSION_KEY = 'clawapp-session-key'
 const STORAGE_PENDING_KEY = 'clawapp-pending-sessions'
+
+/**
+ * Get user-specific localStorage key to prevent session data leakage between users
+ * @param {string} baseKey - The base key name
+ * @returns {string} User-namespaced key (e.g., "clawapp-session-key-user:14" or "clawapp-session-key" for anonymous)
+ */
+function getUserStorageKey(baseKey) {
+  const userId = authManager.userInfo?.id
+  return userId ? `${baseKey}-user:${userId}` : baseKey
+}
 
 let _messagesEl = null
 let _typingEl = null
@@ -18,6 +29,7 @@ let _sendBtn = null
 let _previewBar = null
 let _sessionKey = ''
 let _serverSessionKey = ''
+let _sessionTitle = ''  // 当前会话的标题（来自数据库）
 let _isStreaming = false
 let _isSending = false     // chat.send 请求中
 let _messageQueue = []     // 消息队列（发送中时排队）
@@ -42,6 +54,10 @@ let _lastReconnectNoticeAt = 0
 const RENDER_THROTTLE = 30 // 渲染节流间隔 ms
 const FINAL_DUP_WINDOW_MS = 5000
 const RECONNECT_NOTICE_COOLDOWN_MS = 5000
+
+// 消息过滤相关状态
+let _processingIndicator = null  // 当前处理中的指示器元素
+let _lastFinalContent = null     // 最后收到的非内部消息内容（用于替换指示器）
 
 const SVG_SEND = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg>`
 const SVG_ATTACH = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>`
@@ -69,6 +85,60 @@ function focusInputIfDesktop() {
 function blurInputIfMobile() {
   if (!_textarea || shouldAutoFocusInput()) return
   _textarea.blur()
+}
+
+/**
+ * 检查消息是否应该显示给用户
+ * @param {object} payload - SSE 事件 payload
+ * @returns {boolean} - 是否应该显示
+ */
+function shouldDisplayMessage(payload) {
+  // 如果用户开启了详细模式，显示所有消息
+  if (getDetailedMode()) return true
+
+  // 如果消息标记为内部消息，不显示
+  if (payload._internal) return false
+
+  // 默认显示
+  return true
+}
+
+/**
+ * 显示"正在处理"指示器（简洁模式下用于替代内部消息）
+ */
+function showProcessingIndicator() {
+  if (!_messagesEl) return
+  if (_processingIndicator) return
+
+  const wrapper = document.createElement('div')
+  wrapper.className = 'msg msg-assistant'
+  wrapper.innerHTML = `
+    <div class="msg-bubble">
+      <div class="msg-content">
+        <div class="processing-indicator">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="processing-text">AI 正在处理...</span>
+        </div>
+      </div>
+      <div class="msg-time">${formatTime(new Date())}</div>
+    </div>
+  `
+
+  _messagesEl.insertBefore(wrapper, _typingEl)
+  _processingIndicator = wrapper
+  scrollToBottom()
+}
+
+/**
+ * 隐藏"正在处理"指示器
+ */
+function hideProcessingIndicator() {
+  if (_processingIndicator) {
+    _processingIndicator.remove()
+    _processingIndicator = null
+  }
 }
 
 /** 从 OpenClaw 消息中提取可渲染内容（文本 + 图片 + 视频 + 音频 + 文件） */
@@ -149,9 +219,12 @@ export function createChatPage() {
     <button class="scroll-bottom-btn" id="scroll-bottom-btn">↓</button>
     <div class="preview-bar" id="preview-bar"></div>
     <div class="chat-input-area">
-      <button class="icon-btn" id="cmd-btn">${SVG_CMD}</button>
-      <button class="icon-btn" id="attach-btn">${SVG_ATTACH}</button>
-      <button class="icon-btn" id="mic-btn" style="display:none">${SVG_MIC}</button>
+      <!-- Quick commands temporarily disabled -->
+      <!-- <button class="icon-btn" id="cmd-btn">${SVG_CMD}</button> -->
+      <!-- Attachment upload temporarily disabled -->
+      <!-- <button class="icon-btn" id="attach-btn">${SVG_ATTACH}</button> -->
+      <!-- Voice input temporarily disabled -->
+      <!-- <button class="icon-btn" id="mic-btn" style="display:none">${SVG_MIC}</button> -->
       <div class="input-wrapper"><textarea id="chat-input" rows="1" placeholder="${t('chat.input.placeholder')}"></textarea></div>
       <button class="send-btn" id="send-btn" disabled>${SVG_SEND}</button>
     </div>
@@ -160,18 +233,48 @@ export function createChatPage() {
 }
 
 export function setSessionKey(key) {
+  console.log('[setSessionKey v2]', Date.now(), 'key:', key, 'type:', typeof key)
+
   // 记录服务端默认会话，但不要在重连时覆盖用户当前会话
   _serverSessionKey = key || ''
 
-  // 仅在首次初始化（当前无会话）时设置 active session
-  if (!_sessionKey) {
-    const saved = localStorage.getItem(STORAGE_SESSION_KEY)
-    _sessionKey = saved || _serverSessionKey || ''
-    if (_sessionKey) localStorage.setItem(STORAGE_SESSION_KEY, _sessionKey)
+  // 如果服务器返回 null（用户没有会话），设置"无会话"状态
+  if (key === null && !_sessionKey) {
+    // 首次连接且无会话，设置"无会话"状态
+    console.log('[setSessionKey] No session for user, setting empty state')
+    _sessionKey = ''
+    setPickerSessionKey('')
+    localStorage.removeItem(getUserStorageKey(STORAGE_SESSION_KEY))
+    updateSessionTitle()
+    disableChatInput()
+    return
   }
 
+  // 仅在首次初始化（当前无会话）时设置 active session
+  if (!_sessionKey) {
+    const storageKey = getUserStorageKey(STORAGE_SESSION_KEY)
+    const saved = localStorage.getItem(storageKey)
+    _sessionKey = saved || _serverSessionKey || ''
+    if (_sessionKey) localStorage.setItem(storageKey, _sessionKey)
+  }
+
+  console.log('[setSessionKey] Final _sessionKey:', _sessionKey)
   setPickerSessionKey(_sessionKey)
   updateSessionTitle()
+  // 如果有会话，确保输入框可用
+  if (_sessionKey) enableChatInput()
+}
+
+/** 禁用聊天输入（无会话状态） */
+function disableChatInput() {
+  if (_textarea) _textarea.disabled = true
+  if (_sendBtn) _sendBtn.disabled = true
+}
+
+/** 启用聊天输入（有会话状态） */
+function enableChatInput() {
+  if (_textarea) _textarea.disabled = false
+  updateSendState()  // 正确更新发送按钮状态
 }
 export function getSessionKey() { return _sessionKey }
 
@@ -245,6 +348,13 @@ export function initChatUI(onSettings) {
   initMedia(_previewBar, updateSendState)
   initSettings(onSettings)
 
+  // 监听详细模式设置变化，重新加载历史消息
+  window.addEventListener('detailed-mode-change', () => {
+    if (_sessionKey) {
+      loadHistory()
+    }
+  })
+
   // 页面就绪后静默检查通知权限（已 granted 则无感，'default' 则不主动弹窗——由用户在设置里开启）
   if (isNotifySupported && Notification.permission === 'granted') {
     // 已授权，无需任何操作
@@ -256,9 +366,12 @@ export function initChatUI(onSettings) {
   initSessionPicker({
     onSwitch: switchSession,
     onSystemMsg: appendSystemMessage,
+    onClear: clearCurrentSession,
   })
-  document.getElementById('cmd-btn').onclick = () => showCommands()
-  document.getElementById('attach-btn').onclick = () => pickMedia()
+  // Quick commands temporarily disabled
+  // document.getElementById('cmd-btn').onclick = () => showCommands()
+  // Attachment upload temporarily disabled
+  // document.getElementById('attach-btn').onclick = () => pickMedia()
   _sendBtn.onclick = () => handleSendClick()
 
   _textarea.addEventListener('input', () => { autoResize(); updateSendState() })
@@ -266,7 +379,8 @@ export function initChatUI(onSettings) {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSendClick() }
   })
 
-  // 语音输入
+  // Voice input temporarily disabled
+  /*
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
   const micBtn = document.getElementById('mic-btn')
   if (SpeechRecognition && micBtn) {
@@ -274,6 +388,7 @@ export function initChatUI(onSettings) {
     const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1'
     micBtn.onclick = () => isSecure ? toggleVoiceInput(SpeechRecognition) : appendSystemMessage(t('voice.need.https'))
   }
+  */
 
   initCommands((cmd, fillOnly) => {
     if (fillOnly) { _textarea.value = cmd; focusInputIfDesktop(); updateSendState() }
@@ -299,6 +414,12 @@ export function initChatUI(onSettings) {
   })
 
   restorePendingIndicator().catch(() => {})
+
+  // 检查无会话状态：如果 sessionKey 为空，禁用输入框
+  // 这处理页面刷新时 setSessionKey 在 DOM 初始化之前调用的情况
+  if (!_sessionKey) {
+    disableChatInput()
+  }
 }
 
 function toggleVoiceInput(SR) {
@@ -340,7 +461,9 @@ function autoResize() {
 }
 
 function updateSendState() {
+  if (!_textarea) return  // Guard: initChatUI may not have been called yet
   const hasText = _textarea.value.trim().length > 0
+  if (!_sendBtn) return  // Guard: initChatUI may not have been called yet
   _sendBtn.disabled = !hasText && !hasAttachments()
   // 流式响应中显示停止按钮
   if (_isStreaming) {
@@ -365,7 +488,15 @@ function notifyReconnectingSession() {
 }
 
 function fallbackToDefaultSessionWithNotice() {
-  const fallback = _serverSessionKey || wsClient.snapshot?.sessionDefaults?.mainSessionKey || 'agent:main:main'
+  // For JWT users, DO NOT fallback to shared default session (security risk!)
+  // Only use _serverSessionKey if available (server-provided user-specific session)
+  if (authManager.authType === 'jwt') {
+    appendSystemMessage(`${t('chat.send.error')}: ${t('chat.session.missing.manual')}`)
+    return
+  }
+
+  // For token users, can use server-provided session key
+  const fallback = _serverSessionKey
   if (!fallback || fallback === _sessionKey) {
     appendSystemMessage(`${t('chat.send.error')}: ${t('chat.session.missing.manual')}`)
     return
@@ -520,6 +651,27 @@ function handleChatEvent(payload) {
   if (payload.sessionKey && payload.sessionKey !== _sessionKey && _sessionKey) return
 
   const { state } = payload
+  const isInternal = payload._internal
+  const detailedMode = getDetailedMode()
+
+  // 简洁模式下的消息过滤逻辑
+  if (!detailedMode && isInternal) {
+    // 内部消息不直接显示
+    if (state === 'delta') {
+      // 显示临时的"正在处理"指示器（如果还没有）
+      if (!_processingIndicator) {
+        showProcessingIndicator()
+      }
+    }
+    // 跳过内部消息的处理
+    return
+  }
+
+  // 对于非内部消息，或详细模式下的所有消息，正常处理
+  // 如果有处理指示器，在显示真实内容前先移除
+  if (!isInternal && state === 'final' && _processingIndicator) {
+    hideProcessingIndicator()
+  }
 
   if (state === 'delta') {
     const c = extractContent(payload.message)
@@ -1163,9 +1315,22 @@ export async function loadHistory() {
 
 /** 去重：合并 Gateway 重试产生的重复消息 */
 function dedupeHistory(messages) {
+  const detailedMode = getDetailedMode()
   const deduped = []
   for (const msg of messages) {
-    if (msg.role === 'toolResult') continue
+    // 过滤内部消息（简洁模式下）
+    if (!detailedMode) {
+      // 跳过工具调用结果
+      if (msg.role === 'toolResult') continue
+      // 跳过工具调用消息
+      if (msg.role === 'tool') continue
+      // 跳过带有 thinking 标记的消息
+      if (msg.metadata?.thinking) continue
+    } else {
+      // 详细模式下也跳过 toolResult（这些通常不需要显示）
+      if (msg.role === 'toolResult') continue
+    }
+
     const c = extractContent(msg)
     if (!c?.text && !c?.images?.length && !c?.videos?.length && !c?.audios?.length && !c?.files?.length) continue
     const last = deduped[deduped.length - 1]
@@ -1235,18 +1400,35 @@ export function abortChat() {
 function updateSessionTitle() {
   const titleEl = document.getElementById('session-title')
   if (!titleEl) return
-  // 从 sessionKey 提取可读名称
-  // 格式: agent:main:main 或 agent:main:qqbot:dm:xxx
-  const parts = _sessionKey.split(':')
-  let label = 'ClawApp'
-  if (parts.length >= 3) {
-    const agent = parts[1]
-    const channel = parts.slice(2).join(':')
-    if (channel === 'main') label = t('session.main')
-    else label = channel.length > 20 ? channel.substring(0, 20) + '…' : channel
-    if (agent !== 'main') label = `[${agent}] ${label}`
+
+  // 无会话状态
+  if (!_sessionKey) {
+    titleEl.textContent = t('session.none') || '无会话'
+    titleEl.title = ''
+    return
   }
-  titleEl.textContent = label
+
+  // 从 sessionKey 提取智能体和会话名称
+  // 格式: agent:main:test1 或 agent:counselor-bot:test2
+  const parts = _sessionKey.split(':')
+  let agent = 'main'
+  let sessionName = ''
+
+  if (parts.length >= 3) {
+    agent = parts[1]
+    sessionName = parts.slice(2).join(':')
+  }
+
+  // 使用数据库标题（如果有），否则使用从 sessionKey 提取的名称
+  // 统一格式：[agent] 会话名称
+  let displayName = _sessionTitle || sessionName
+
+  // 如果显示名称不包含智能体前缀，添加前缀
+  if (!displayName.match(/^\[.+\]\s/)) {
+    displayName = `[${agent}] ${displayName}`
+  }
+
+  titleEl.textContent = displayName
   titleEl.title = _sessionKey
 }
 
@@ -1282,21 +1464,59 @@ function hideDisconnectBanner() {
 }
 
 /** 切换到指定会话 */
-function switchSession(newKey) {
+function switchSession(newKey, title = null) {
   _sessionKey = newKey
+  _sessionTitle = title || ''  // 保存会话标题
   setPickerSessionKey(newKey)
-  localStorage.setItem(STORAGE_SESSION_KEY, newKey)
+  localStorage.setItem(getUserStorageKey(STORAGE_SESSION_KEY), newKey)
   _lastHistoryHash = ''
   _seenFinalRunIds.clear()
   _lastFinalSig = ''
   _lastFinalAt = 0
   resetStreamState()
   updateSessionTitle()
+  enableChatInput()  // 确保切换会话后输入框可用
+
+  // 立即清空当前消息，避免在加载新会话数据时显示旧会话的内容
+  clearMessages()
+
   showLoadingOverlay()
   loadHistory().finally(() => {
     hideLoadingOverlay()
     restorePendingIndicator().catch(() => {})
   })
+}
+
+/** 清空当前会话（删除当前会话时调用） */
+export function clearCurrentSession() {
+  // 清空会话键
+  _sessionKey = ''
+  setPickerSessionKey('')
+  localStorage.removeItem(getUserStorageKey(STORAGE_SESSION_KEY))
+
+  // 清空消息列表
+  clearMessages()
+
+  // 重置状态
+  _lastHistoryHash = ''
+  _seenFinalRunIds.clear()
+  _lastFinalSig = ''
+  _lastFinalAt = 0
+  resetStreamState()
+
+  // 更新会话标题为默认状态
+  const titleEl = document.getElementById('session-title')
+  if (titleEl) {
+    titleEl.textContent = t('session.none') || '无会话'
+    titleEl.title = ''
+  }
+
+  // 禁用输入框和发送按钮
+  if (_textarea) _textarea.disabled = true
+  if (_sendBtn) _sendBtn.disabled = true
+
+  // 显示提示消息
+  appendSystemMessage(t('session.deleted.hint') || '当前会话已删除，请选择或创建新会话')
 }
 
 /** 加载遮罩 */

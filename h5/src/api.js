@@ -6,18 +6,30 @@
  * - 与 api-client.js 的 WsClient 互补（WsClient 负责 SSE/WS 通信）
  */
 
+import { getApiBase } from './config.js';
+
 export class API {
   constructor() {
-    this.baseURL = window.location.origin;
+    this.baseURL = getApiBase();
     // Token is synchronized via localStorage with authManager
     // Both read/write the same 'jwt_token' key to stay in sync
     this.token = localStorage.getItem('jwt_token');
   }
 
   /**
+   * Refresh baseURL (call this after config changes)
+   */
+  refreshBaseURL() {
+    this.baseURL = getApiBase();
+  }
+
+  /**
    * Make authenticated API request
    */
   async request(method, path, data = null, timeout = 30000) {
+    // Dynamically get API base URL on each request to handle config changes
+    const apiBase = getApiBase();
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -38,7 +50,7 @@ export class API {
     }
 
     try {
-      const response = await fetch(this.baseURL + path, options);
+      const response = await fetch(apiBase + path, options);
       clearTimeout(timeoutId);
 
       if (!response.ok) {

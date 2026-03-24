@@ -2,13 +2,14 @@
  * 会话选择器 - 会话列表/新建/删除/切换 UI
  */
 
-import { wsClient } from './api-client.js'
+import { wsClient, uuid } from './api-client.js'
+import { api } from './api.js'
 import { t, formatRelativeTime } from './i18n.js'
 
 let _sessionKey = ''
 let _onSwitch = null
 let _onSystemMsg = null
-let _onClearSessionMessages = null
+let _onClearSession = null  // 删除当前会话时的回调
 
 function escapeText(str) {
   const div = document.createElement('div')
@@ -22,10 +23,12 @@ function escapeText(str) {
  * @param {() => string} opts.getSessionKey - 获取当前 sessionKey
  * @param {(key: string) => void} opts.onSwitch - 切换会话回调
  * @param {(text: string) => void} opts.onSystemMsg - 系统消息回调
+ * @param {() => void} opts.onClear - 清空当前会话回调（删除当前会话时调用）
  */
 export function initSessionPicker(opts) {
   _onSwitch = opts.onSwitch
   _onSystemMsg = opts.onSystemMsg
+  _onClearSession = opts.onClear
 }
 
 export function setPickerSessionKey(key) {
@@ -71,8 +74,9 @@ export async function refreshSessionList() {
   listEl.innerHTML = '<div class="session-loading">' + t('session.loading') + '</div>'
 
   try {
-    const result = await wsClient.sessionsList(50)
-    const sessions = result?.sessions || result || []
+    // Use user's sessions from /api/sessions instead of Gateway's sessions.list
+    const result = await api.listSessions()
+    const sessions = result || []
     listEl.innerHTML = ''
 
     if (!sessions.length) {
@@ -82,18 +86,19 @@ export async function refreshSessionList() {
 
     sessions.forEach(s => {
       const key = s.sessionKey || s.key || ''
+      const sessionId = s.id
       const isActive = key === _sessionKey
       const item = document.createElement('div')
       item.className = `cmd-item${isActive ? ' session-active' : ''}`
 
       // 解析会话信息
       const parts = key.split(':')
-      let name = key
+      let name = s.title || key
       let detail = ''
       if (parts.length >= 3) {
         const agent = parts[1]
         const channel = parts.slice(2).join(':')
-        name = channel === 'main' ? `${t('session.main')} (${agent})` : channel
+        name = s.title || (channel === 'main' ? `${t('session.main')} (${agent})` : channel)
         detail = agent !== 'main' ? `agent: ${agent}` : ''
       }
 
@@ -114,14 +119,14 @@ export async function refreshSessionList() {
       // 点击切换会话
       item.querySelector('.session-item-content').onclick = () => {
         if (key === _sessionKey) { closeSessionPicker(); return }
-        _onSwitch?.(key)
+        _onSwitch?.(key, name)  // 传递会话名称
         closeSessionPicker()
       }
 
-      // 删除按钮
+      // 删除按钮 - use sessionId instead of sessionKey
       item.querySelector('.session-delete-btn').onclick = (e) => {
         e.stopPropagation()
-        confirmDeleteSession(key, name)
+        confirmDeleteSession(sessionId, key, name)
       }
 
       listEl.appendChild(item)
@@ -134,7 +139,9 @@ export async function refreshSessionList() {
 /** 新建会话弹窗 */
 function promptNewSession() {
   closeSessionPicker()
-  const defaultAgent = wsClient.snapshot?.sessionDefaults?.defaultAgentId || 'main'
+  const defaultAgent = 'main'  // Use hardcoded default agent
+  // 生成默认会话名称（使用 UUID 前 8 个字符）
+  const defaultSessionName = uuid().split('-')[0]
 
   const overlay = document.createElement('div')
   overlay.className = 'session-overlay cmd-overlay visible'
@@ -145,7 +152,7 @@ function promptNewSession() {
     <h3>${t('session.new')}</h3>
     <div class="form-group" style="margin:16px 0">
       <label style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;display:block">${t('session.new.name')}</label>
-      <input type="text" id="new-session-name" placeholder="${t('session.new.name.placeholder')}"
+      <input type="text" id="new-session-name" value="${defaultSessionName}" placeholder="${t('session.new.name.placeholder')}"
         style="width:100%;height:40px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text-primary);font-size:14px;outline:none" />
     </div>
     <div style="margin:0 0 16px">
@@ -173,15 +180,37 @@ function promptNewSession() {
   }
   overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); dialog.remove() } }
   dialog.querySelector('.cancel').onclick = () => { overlay.remove(); dialog.remove() }
-  dialog.querySelector('.confirm').onclick = () => {
+  dialog.querySelector('.confirm').onclick = async () => {
     const name = dialog.querySelector('#new-session-name').value.trim()
     if (!name) return
     const agent = dialog.querySelector('#new-session-agent')?.value.trim() || defaultAgent
-    const newKey = `agent:${agent}:${name}`
-    overlay.remove()
-    dialog.remove()
-    _onSwitch?.(newKey)
-    _onSystemMsg?.(t('session.created', { name }))
+
+    // Disable button and show loading
+    const confirmBtn = dialog.querySelector('.confirm')
+    confirmBtn.disabled = true
+    confirmBtn.textContent = t('session.loading')
+
+    try {
+      // Create session on server
+      // Use unique name in gatewaySessionId to ensure each session has a unique key
+      const gatewaySessionId = `agent:${agent}:${name}`
+      const result = await api.createSession(gatewaySessionId, agent, name)
+
+      // Use the gateway_session_id from server response as sessionKey
+      const newKey = result.gateway_session_id || gatewaySessionId
+
+      overlay.remove()
+      dialog.remove()
+      _onSwitch?.(newKey, name)  // 传递会话名称和 key
+      _onSystemMsg?.(t('session.created', { name }))
+
+      // Refresh session list to show new session
+      await refreshSessionList()
+    } catch (e) {
+      confirmBtn.disabled = false
+      confirmBtn.textContent = t('session.new.create')
+      _onSystemMsg?.(`${t('session.load.error')}: ${e.message}`)
+    }
   }
 
   document.body.appendChild(overlay)
@@ -193,7 +222,7 @@ function promptNewSession() {
 }
 
 /** 确认删除会话 */
-function confirmDeleteSession(key, name) {
+function confirmDeleteSession(sessionId, key, name) {
   const overlay = document.createElement('div')
   overlay.className = 'session-overlay cmd-overlay visible'
 
@@ -216,11 +245,10 @@ function confirmDeleteSession(key, name) {
     overlay.remove()
     dialog.remove()
     try {
-      await wsClient.sessionsDelete(key)
-      // 如果删的是当前会话，切回主会话
+      await api.deleteSession(sessionId)
+      // 如果删的是当前会话，清空会话状态并禁用输入
       if (key === _sessionKey) {
-        const mainKey = wsClient.snapshot?.sessionDefaults?.mainSessionKey || 'agent:main:main'
-        _onSwitch?.(mainKey)
+        _onClearSession?.()
       }
       await refreshSessionList()
     } catch (e) {

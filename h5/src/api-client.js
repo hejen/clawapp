@@ -60,7 +60,6 @@ export class WsClient {
 
   get connected() { return this._connected }
   get gatewayReady() { return this._gatewayReady }
-  get snapshot() { return this._snapshot }
   get hello() { return this._hello }
   get sessionKey() { return this._sessionKey }
 
@@ -77,7 +76,7 @@ export class WsClient {
   }
 
   /** 连接到代理服务端 */
-  async connect(host, token) {
+  async connect(host, token, options = {}) {
     this._host = host
     this._token = token
     this._baseUrl = resolveBaseUrl(host)
@@ -86,9 +85,15 @@ export class WsClient {
 
     try {
       // 1. POST /api/connect 建立会话
+      const headers = { 'Content-Type': 'application/json' }
+      // If JWT token is provided via options, use Bearer auth
+      if (options.jwtToken) {
+        headers['Authorization'] = `Bearer ${options.jwtToken}`
+      }
+
       const res = await fetch(`${this._baseUrl}/api/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ token }),
       })
 
@@ -118,8 +123,8 @@ export class WsClient {
 
       this._sid = data.sid
       this._hello = data.hello
-      this._snapshot = data.snapshot
       this._sessionKey = data.sessionKey
+      this._proxyToken = data.proxyToken || null  // Store PROXY_TOKEN for JWT users
       this._lastSseEventId = 0
       this._recentEventHashes.clear()
 
@@ -131,8 +136,19 @@ export class WsClient {
       this._connected = true
       this._reconnectAttempts = 0
       this._setConnected(true, 'ready')
+
+      console.log('[api-client] About to trigger onReady callbacks, count:', this._readyCallbacks.length)
+      console.log('[api-client] hello:', this._hello)
+      console.log('[api-client] sessionKey:', this._sessionKey)
+      console.log('[api-client] proxyToken:', this._proxyToken)
+
       this._readyCallbacks.forEach(fn => {
-        try { fn(this._hello, this._sessionKey) } catch (e) {}
+        try {
+          console.log('[api-client] Calling onReady callback with:', this._hello, this._sessionKey, { proxyToken: this._proxyToken })
+          fn(this._hello, this._sessionKey, { proxyToken: this._proxyToken })
+        } catch (e) {
+          console.error('[api-client] onReady callback error:', e)
+        }
       })
     } catch (e) {
       console.error('[api] connect error:', e)

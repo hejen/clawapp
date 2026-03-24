@@ -280,3 +280,26 @@ export async function saveSessionToServer(session) {
     console.error('Failed to save session to server:', error);
   }
 }
+
+/**
+ * Clear all user-specific localStorage keys
+ * Called when switching users to prevent data leakage
+ */
+export function clearUserLocalStorage() {
+  try {
+    // Get all keys from localStorage
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      // Remove clawapp keys (but not access_token or jwt_token which are managed by authManager)
+      if (key && key.startsWith('clawapp-') && key !== 'clawapp-config') {
+        keysToRemove.push(key);
+      }
+    }
+    // Remove all identified keys
+    keysToRemove.forEach(key => localStorage.removeItem(key));
+    console.log(`[db] Cleared ${keysToRemove.length} user-specific localStorage keys`);
+  } catch (e) {
+    console.error('[db] clearUserLocalStorage error:', e);
+  }
+}

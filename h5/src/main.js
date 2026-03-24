@@ -6,6 +6,7 @@ import { initTheme } from './theme.js'
 import { initOfflineHandler } from './offline-queue.js'
 import { authManager } from './auth.js'
 import { api } from './api.js'
+import { getApiBase } from './config.js'
 
 const STORAGE_KEY = 'clawapp-config'
 const GUIDE_KEY = 'clawapp-guide-shown'
@@ -76,7 +77,7 @@ function createSetupPage() {
       </div>
     </div>
     <div class="setup-footer">
-      <a href="https://clawapp.qt.cool" target="_blank" rel="noopener">Powered by 晴辰云 · clawapp.qt.cool</a>
+      <a href="https://github.com/openclaw/openclaw-chat" target="_blank" rel="noopener">OpenClaw Chat</a>
     </div>
   `
   return page
@@ -163,51 +164,91 @@ function showPage(pageId) {
 let chatInitialized = false
 
 async function initApp() {
+  console.log('[initApp v6] Added debug logging ' + Date.now())
   try {
     // Initialize authentication first
     const authInfo = await authManager.init()
+    console.log('[initApp] authInfo received:', authInfo)
+    console.log('[initApp] authInfo.type:', authInfo?.type)
 
     // NO AUTH - Show login page for new users
     if (!authInfo) {
+      console.log('[initApp] No authInfo, showing login page')
       showLoginPage()
       return
     }
 
     // JWT user authentication: skip setup page, connect directly
-  if (authInfo && authInfo.type === 'jwt') {
-    const config = getConfig()
-    const host = config?.host || window.location.hostname
-    const token = authInfo.token
+    if (authInfo && authInfo.type === 'jwt') {
+      console.log('[initApp] JWT auth detected, skipping setup page')
+      const config = getConfig()
+      // Use getApiBase() to get full URL including path (e.g., https://domain:3380/openclaw-chat)
+      // For JWT users, we need the full path for proper API routing through nginx
+      const apiBase = getApiBase()
+      const proxyToken = config?.token
+      console.log('[initApp] Connecting with JWT, apiBase:', apiBase)
 
-    // Create pages but hide setup page
-    const setupPage = createSetupPage()
-    const chatPage = createChatPage()
-    app.appendChild(setupPage)
-    app.appendChild(chatPage)
+      // Create pages
+      const setupPage = createSetupPage()
+      const chatPage = createChatPage()
+      app.appendChild(setupPage)
+      app.appendChild(chatPage)
 
-    // Initialize offline handler
-    initOfflineHandler()
+      // IMPORTANT: Hide setup page immediately, show chat page
+      // This prevents setup page from showing while connecting
+      setupPage.classList.add('hidden')
+      chatPage.classList.remove('hidden')
+      console.log('[initApp] Pages created, setup hidden, chat visible')
 
-    // Setup Gateway ready callback
-    wsClient.onReady((hello, sessionKey) => {
-      setSessionKey(sessionKey)
-      showPage('chat-page')
-      if (!chatInitialized) {
-        chatInitialized = true
-        initChatUI(() => {
-          wsClient.disconnect()
-          showPage('setup-page')
-          chatInitialized = false
-        })
-      }
-      requestAnimationFrame(() => loadHistory())
-      showGuideIfNeeded()
-    })
+      // Disable all interactions until WebSocket connects
+      const allButtons = chatPage.querySelectorAll('button')
+      allButtons.forEach(btn => btn.disabled = true)
+      const textarea = chatPage.querySelector('textarea')
+      if (textarea) textarea.disabled = true
+      console.log('[initApp] Disabled all interactions until connection')
 
-    // Connect directly with JWT token
-    await connectWithToken(host, token)
-    return
-  }
+      // Initialize offline handler
+      initOfflineHandler()
+
+      // Setup Gateway ready callback
+      wsClient.onReady((hello, sessionKey, meta) => {
+        console.log('[initApp] WebSocket connected, sessionKey:', sessionKey)
+
+        // Re-enable all interactions now that WebSocket is connected
+        const chatPage = document.getElementById('chat-page')
+        if (chatPage) {
+          const allButtons = chatPage.querySelectorAll('button')
+          allButtons.forEach(btn => btn.disabled = false)
+          const textarea = chatPage.querySelector('textarea')
+          if (textarea) textarea.disabled = false
+          console.log('[initApp] Re-enabled all interactions')
+        }
+
+        // If server returned a proxyToken, save it for future connections
+        if (meta?.proxyToken) {
+          saveConfig(apiBase, meta.proxyToken)
+          console.log('[JWT] Saved PROXY_TOKEN for future connections')
+        }
+
+        setSessionKey(sessionKey)
+        showPage('chat-page')
+        if (!chatInitialized) {
+          chatInitialized = true
+          initChatUI(() => {
+            wsClient.disconnect()
+            showPage('setup-page')
+            chatInitialized = false
+          })
+        }
+        requestAnimationFrame(() => loadHistory())
+        showGuideIfNeeded()
+      })
+
+      // Connect with JWT token in Authorization header
+      // The server will validate JWT and use its configured PROXY_TOKEN internally
+      await connectWithJWT(apiBase, authInfo.token, proxyToken)
+      return
+    }
 
   // Token user or config-based auth: continue with existing flow
   const setupPage = createSetupPage()
@@ -385,6 +426,21 @@ function doConnect(host, token, errorEl, connectBtn) {
 
 /**
  * Connect with JWT token (for authenticated users)
+ * Connects via Authorization header instead of using token as connection credential
+ * Simplified version of doConnect without UI elements
+ */
+async function connectWithJWT(host, jwtToken, existingProxyToken) {
+  console.log('[JWT Auth] Connecting with JWT Bearer token')
+  wsClient.disconnect()
+  // Pass JWT token via Authorization header
+  // If we have a saved proxyToken, also pass it (for compatibility)
+  const options = { jwtToken }
+  wsClient.connect(host, existingProxyToken || '', options)
+  // The onReady callback is already registered in initApp
+}
+
+/**
+ * Connect with proxy token (for non-authenticated users)
  * Simplified version of doConnect without UI elements
  */
 async function connectWithToken(host, token) {
@@ -407,9 +463,6 @@ function showGuideIfNeeded() {
         <div class="guide-tip">${t('guide.tip1')}</div>
         <div class="guide-tip">${t('guide.tip2')}</div>
         <div class="guide-tip">${t('guide.tip3')}</div>
-        <div class="guide-tip">${t('guide.tip4')}</div>
-        <div class="guide-tip">${t('guide.tip5')}</div>
-        <div class="guide-tip">${t('guide.tip6')}</div>
       </div>
       <button class="btn-primary guide-btn">${t('guide.start')}</button>
     </div>
@@ -620,7 +673,9 @@ function showLoginPage() {
     e.preventDefault()
 
     const username = document.getElementById('regUsername').value
-    const email = document.getElementById('regEmail').value
+    // Convert empty string to null for email (optional field)
+    const emailInput = document.getElementById('regEmail').value
+    const email = emailInput.trim() || null  // Empty string → null
     const password = document.getElementById('regPassword').value
     const passwordConfirm = document.getElementById('regPasswordConfirm').value
     const btn = document.getElementById('registerBtn')

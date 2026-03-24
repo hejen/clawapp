@@ -155,28 +155,41 @@ function setSessionProgress(session, patch = {}) {
 /**
  * 生成 connect 握手帧（含 Ed25519 device 签名）
  */
-function createConnectFrame(nonce) {
+function createConnectFrame(nonce, username = null, userId = null) {
   const signedAt = Date.now();
   const credential = CONFIG.gatewayPassword || CONFIG.gatewayToken;
-  const payload = ['v2', deviceKey.deviceId, 'gateway-client', 'backend', 'operator', SCOPES.join(','), String(signedAt), credential, nonce || ''].join('|');
+
+  // Gateway requires client.id to be a specific constant value
+  // We pass user identification through the userAgent field instead
+  const clientId = 'gateway-client';
+
+  const payload = ['v2', deviceKey.deviceId, clientId, 'backend', 'operator', SCOPES.join(','), String(signedAt), credential, nonce || ''].join('|');
   const signature = ed25519Sign(null, Buffer.from(payload, 'utf8'), devicePrivateKey).toString('base64url');
   const auth = CONFIG.gatewayPassword
     ? { password: CONFIG.gatewayPassword }
     : { token: CONFIG.gatewayToken };
+
+  // Pass user identification in userAgent for Agent to distinguish users
+  // Format: "OpenClaw-Mobile-Proxy/1.0.0 [username(userId)]" for logged-in users
+  //         "OpenClaw-Mobile-Proxy/1.0.0" for anonymous users
+  const userAgent = (username && userId)
+    ? `OpenClaw-Mobile-Proxy/1.0.0 [${username}(${userId})]`
+    : 'OpenClaw-Mobile-Proxy/1.0.0';
+
   return {
     type: 'req',
     id: `connect-${randomUUID()}`,
     method: 'connect',
     params: {
       minProtocol: 3, maxProtocol: 3,
-      client: { id: 'gateway-client', version: '1.0.0', platform: 'web', mode: 'backend' },
+      client: { id: clientId, version: '1.0.0', platform: 'web', mode: 'backend' },
       role: 'operator',
       scopes: SCOPES,
       caps: [],
       auth,
       device: { id: deviceKey.deviceId, publicKey: deviceKey.publicKey, signedAt, nonce, signature },
       locale: 'zh-CN',
-      userAgent: 'OpenClaw-Mobile-Proxy/1.0.0',
+      userAgent,
     },
   };
 }
@@ -218,10 +231,34 @@ function validateToken(token) {
   return token === CONFIG.proxyToken;
 }
 
+/** 判断消息是否为内部消息（中间处理状态） */
+function isInternalMessage(event, data) {
+  // tool.call 和 tool.result 是工具调用相关，属于内部消息
+  if (event === 'message' && data) {
+    const msg = data;
+    // 工具调用
+    if (msg.role === 'tool') return true;
+    // 工具结果
+    if (msg.role === 'toolResult') return true;
+    // 思考过程（通常在消息元数据中标记）
+    if (msg.metadata?.thinking === true) return true;
+    // skill 加载
+    if (msg.metadata?.skillLoading === true) return true;
+    // 其他中间状态
+    if (msg.metadata?.internal === true) return true;
+  }
+  return false;
+}
+
 /** 向 SSE 客户端推送事件 */
 function sseWrite(session, event, data) {
   session.eventSeq++;
-  const entry = { id: session.eventSeq, event, data };
+
+  // 判断是否为内部消息
+  const internal = isInternalMessage(event, data);
+
+  const entry = { id: session.eventSeq, event, data, internal };
+
   // 缓存用于断线续传
   session.eventBuffer.push(entry);
   if (session.eventBuffer.length > EVENT_BUFFER_MAX) {
@@ -229,7 +266,9 @@ function sseWrite(session, event, data) {
   }
   // 如果 SSE 连接存在，立即推送
   if (session.sseRes && !session.sseRes.writableEnded) {
-    session.sseRes.write(`id: ${entry.id}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    // 将 internal 标志包含在发送的数据中
+    const payload = { ...data, _internal: internal };
+    session.sseRes.write(`id: ${entry.id}\nevent: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
     if (typeof session.sseRes.flush === 'function') session.sseRes.flush();
   }
 }
@@ -361,7 +400,7 @@ function handleUpstreamMessage(sid, rawData) {
     log.info(`收到 connect.challenge [${sid}]`);
     if (session._connectTimer) { clearTimeout(session._connectTimer); session._connectTimer = null; }
     const nonce = message.payload?.nonce || '';
-    const connectFrame = createConnectFrame(nonce);
+    const connectFrame = createConnectFrame(nonce, session.username, session.jwtUserId);
     if (session.upstream?.readyState === WebSocket.OPEN) {
       session.upstream.send(JSON.stringify(connectFrame));
     }
@@ -413,7 +452,7 @@ function connectToGateway(sid) {
       session._connectTimer = setTimeout(() => {
         if (session.state === 'connecting') {
           log.info(`未收到 challenge，直接发送 connect [${sid}]`);
-          upstream.send(JSON.stringify(createConnectFrame('')));
+          upstream.send(JSON.stringify(createConnectFrame('', session.username, session.jwtUserId)));
         }
       }, 500);
     });
@@ -725,6 +764,10 @@ app.use((req, res, next) => {
     'http://localhost:5173', 'http://127.0.0.1:5173',
     'https://localhost', 'https://127.0.0.1',
     `http://localhost:${CONFIG.port}`, `http://127.0.0.1:${CONFIG.port}`,
+    // 允许局域网访问（用于开发调试）
+    'http://192.168.33.30:5173', 'http://192.168.33.30:5174',
+    'http://192.168.33.30:5175',
+    // 可以通过环境变量添加更多地址
     ...extraOrigins,
   ];
   const origin = req.headers.origin;
@@ -853,7 +896,33 @@ app.post('/api/change-token', (req, res) => {
 /** POST /api/connect — 建立会话 */
 app.post('/api/connect', async (req, res) => {
   const { token } = req.body || {};
-  if (!validateToken(token)) {
+  const authHeader = req.headers.authorization || '';
+  let effectiveToken = token;
+  let authType = 'token';
+  let jwtUserId = null; // Store JWT user ID for user-specific session
+  let username = null; // Store username for Gateway client identification
+
+  log.info(`[/api/connect] Connection request, authHeader: ${authHeader.substring(0, 20)}...`);
+
+  // Check for JWT Bearer token (logged-in users)
+  if (authHeader.startsWith('Bearer ')) {
+    const jwtToken = authHeader.substring(7);
+    log.info(`[/api/connect] JWT token detected, verifying...`);
+    const decoded = authManager.verifyJWT(jwtToken);
+    if (decoded) {
+      // Valid JWT user - use server's configured PROXY_TOKEN
+      effectiveToken = CONFIG.proxyToken;
+      authType = 'jwt';
+      jwtUserId = decoded.userId; // Store user ID for session lookup
+      username = decoded.username; // Store username for Gateway client identification
+      log.info(`[/api/connect] JWT verified, userId: ${jwtUserId}, username: ${username}`);
+    } else {
+      log.warn(`[/api/connect] JWT verification failed`);
+      return res.status(401).json({ ok: false, error: '认证失败：无效的 JWT token' });
+    }
+  }
+
+  if (!validateToken(effectiveToken)) {
     return res.status(401).json({ ok: false, error: '认证失败：无效的 token' });
   }
 
@@ -883,6 +952,8 @@ app.post('/api/connect', async (req, res) => {
       state: 'idle',
       updatedAt: Date.now(),
     },
+    username, // Store username for Gateway client identification
+    jwtUserId, // Store userId for Gateway client identification
   };
   sessions.set(sid, session);
 
@@ -921,10 +992,44 @@ app.post('/api/connect', async (req, res) => {
     if (lastError) throw lastError;
 
     const defaults = session.snapshot?.sessionDefaults;
-    const sessionKey = defaults?.mainSessionKey || `agent:${defaults?.defaultAgentId || 'main'}:main`;
+    let sessionKey;
 
-    log.info(`会话建立成功 [${sid}]`);
-    res.json({ ok: true, sid, snapshot: session.snapshot, hello: session.hello, sessionKey });
+    // For JWT users, use user-specific session (if exists)
+    if (authType === 'jwt' && jwtUserId) {
+      // Get user's session without auto-creating
+      log.info(`[/api/connect] JWT user lookup, userId: ${jwtUserId}, agentId: ${defaults?.defaultAgentId || 'main'}`);
+      const userSession = await db.getUserSession(jwtUserId, defaults?.defaultAgentId || 'main');
+      if (userSession) {
+        // User has an existing session, use its gateway_session_id as sessionKey
+        sessionKey = userSession.gateway_session_id;
+        log.info(`[/api/connect] JWT user session FOUND, sessionKey: ${sessionKey}`);
+      } else {
+        // User has no sessions, return null to indicate "no session" state
+        sessionKey = null;
+        log.info(`[/api/connect] JWT user has NO sessions, returning sessionKey=null`);
+      }
+    } else {
+      // For token users, use Gateway's default session
+      sessionKey = defaults?.mainSessionKey || `agent:${defaults?.defaultAgentId || 'main'}:main`;
+      log.info(`[/api/connect] Token user, sessionKey: ${sessionKey}`);
+    }
+
+    log.info(`会话建立成功 [${sid}] (${authType} auth), sessionKey: ${sessionKey}`);
+
+    // Only return minimal necessary information to frontend
+    // Do NOT return full snapshot to avoid exposing Gateway internals
+    const responseData = {
+      ok: true,
+      sid,
+      sessionKey,
+      hello: session.hello
+    };
+
+    // Return PROXY_TOKEN to JWT users so they can save it for future connections
+    if (authType === 'jwt' && effectiveToken) {
+      responseData.proxyToken = effectiveToken;
+    }
+    res.json(responseData);
   } catch (e) {
     log.error(`会话建立失败 [${sid}]:`, e.message);
     cleanupSession(sid);
@@ -991,7 +1096,9 @@ app.get('/api/events', (req, res) => {
   if (lastId && session.eventBuffer.length > 0) {
     const missed = session.eventBuffer.filter(e => e.id > lastId);
     for (const entry of missed) {
-      res.write(`id: ${entry.id}\nevent: ${entry.event}\ndata: ${JSON.stringify(entry.data)}\n\n`);
+      // 将 internal 标志包含在发送的数据中
+      const payload = { ...entry.data, _internal: entry.internal };
+      res.write(`id: ${entry.id}\nevent: ${entry.event}\ndata: ${JSON.stringify(payload)}\n\n`);
       if (typeof res.flush === 'function') res.flush();
     }
     log.info(`SSE 续传 [${sid}] 补发 ${missed.length} 条事件 (from id=${lastId})`);

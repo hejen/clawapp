@@ -45,6 +45,14 @@ class AuthManager {
       throw new Error('Username already exists');
     }
 
+    // Check if email already exists
+    if (email) {
+      const existingEmail = await this.db.findUserByEmail(email);
+      if (existingEmail) {
+        throw new Error('Email already exists');
+      }
+    }
+
     // Validate password
     if (password.length < 6) {
       throw new Error('Password must be at least 6 characters');
