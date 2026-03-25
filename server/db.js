@@ -1,4 +1,5 @@
 import sqlite3 from 'sqlite3';
+import { generateDeviceKey } from './device-keys.js';
 
 /**
  * Database class for OpenClaw Chat
@@ -223,11 +224,15 @@ export class Database {
    */
   async createToken(token, agentId, createdBy, options = {}) {
     const { sourceLabel, expiresAt } = options;
+
+    // Generate device keys for token
+    const deviceKey = generateDeviceKey();
+
     const sql = `
-      INSERT INTO access_tokens (token, agent_id, source_label, expires_at, created_by)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO access_tokens (token, agent_id, source_label, expires_at, created_by, device_id, device_public_key, device_private_key_pem)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    const result = await this.run(sql, [token, agentId, sourceLabel, expiresAt, createdBy]);
+    const result = await this.run(sql, [token, agentId, sourceLabel, expiresAt, createdBy, deviceKey.deviceId, deviceKey.publicKey, deviceKey.privateKeyPem]);
     return this.findToken(result.id);
   }
 
