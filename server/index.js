@@ -21,6 +21,7 @@ import Database from './db.js';
 import AuthManager from './auth.js';
 import { router as apiRouter, requireAuth } from './api.js';
 import sessionManager from './session.js';
+import { migrateDeviceKeys } from './migrate-device-keys.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -837,6 +838,35 @@ const authManager = new AuthManager(db, JWT_SECRET);
 
 // 等待数据库初始化
 await db.init();
+
+// ==================== 设备密钥迁移 ====================
+
+/**
+ * 检查并迁移设备密钥
+ * 如果发现有用户或 token 没有设备密钥，则自动运行迁移脚本
+ */
+async function checkAndMigrateDeviceKeys() {
+  try {
+    const usersWithoutKeys = await db.all(
+      'SELECT COUNT(*) as count FROM users WHERE device_id IS NULL OR device_id = ""'
+    );
+
+    const tokensWithoutKeys = await db.all(
+      'SELECT COUNT(*) as count FROM access_tokens WHERE device_id IS NULL OR device_id = ""'
+    );
+
+    if (usersWithoutKeys[0].count > 0 || tokensWithoutKeys[0].count > 0) {
+      log.info(`[Startup] Detected ${usersWithoutKeys[0].count} users and ${tokensWithoutKeys[0].count} tokens without device keys, running migration...`);
+      await migrateDeviceKeys(db);
+      log.info('[Startup] Device key migration completed');
+    }
+  } catch (err) {
+    log.error(`[Startup] Device key migration failed: ${err.message}`);
+  }
+}
+
+// 运行设备密钥迁移检查
+await checkAndMigrateDeviceKeys();
 
 // 将 db、authManager 和 sessionManager 注入到请求中
 app.use((req, res, next) => {

@@ -88,8 +88,48 @@ export class Database {
       for (const indexSQL of indexes) {
         await this.run(indexSQL);
       }
+
+      // Migrate existing tables to add device key columns
+      await this.migrateSchema();
     } catch (error) {
       throw new Error(`Failed to create tables: ${error.message}`);
+    }
+  }
+
+  /**
+   * Migrate existing database schema to add device key columns
+   */
+  async migrateSchema() {
+    try {
+      // Check if users table needs migration
+      const usersTableInfo = await this.all("PRAGMA table_info(users)");
+      const hasUsersDeviceId = usersTableInfo.some(col => col.name === 'device_id');
+
+      if (!hasUsersDeviceId) {
+        console.log('[DB Migration] Adding device key columns to users table...');
+        await this.run('ALTER TABLE users ADD COLUMN device_id TEXT');
+        await this.run('ALTER TABLE users ADD COLUMN device_public_key TEXT NOT NULL DEFAULT ""');
+        await this.run('ALTER TABLE users ADD COLUMN device_private_key_pem TEXT NOT NULL DEFAULT ""');
+        console.log('[DB Migration] Users table migrated successfully');
+      }
+
+      // Check if access_tokens table needs migration
+      const tokensTableInfo = await this.all("PRAGMA table_info(access_tokens)");
+      const hasTokensDeviceId = tokensTableInfo.some(col => col.name === 'device_id');
+
+      if (!hasTokensDeviceId) {
+        console.log('[DB Migration] Adding device key columns to access_tokens table...');
+        await this.run('ALTER TABLE access_tokens ADD COLUMN device_id TEXT');
+        await this.run('ALTER TABLE access_tokens ADD COLUMN device_public_key TEXT NOT NULL DEFAULT ""');
+        await this.run('ALTER TABLE access_tokens ADD COLUMN device_private_key_pem TEXT NOT NULL DEFAULT ""');
+        console.log('[DB Migration] Access tokens table migrated successfully');
+      }
+    } catch (error) {
+      // If column already exists, SQLite will throw an error, which we can ignore
+      if (!error.message.includes('duplicate column name')) {
+        console.error('[DB Migration] Schema migration error:', error.message);
+        throw new Error(`Failed to migrate schema: ${error.message}`);
+      }
     }
   }
 
