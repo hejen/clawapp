@@ -1,11 +1,14 @@
 import Database from './db.js';
 import { unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { fileURLToPath } from 'url';
 
 const execAsync = promisify(exec);
-const TEST_DB_PATH = join(process.cwd(), 'server', 'test-standalone.db');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const TEST_DB_PATH = join(__dirname, 'test-standalone.db');
 
 function cleanup() {
   try { unlinkSync(TEST_DB_PATH); } catch {}
@@ -33,7 +36,8 @@ async function testStandaloneExecution() {
   await db.close();
 
   // 运行独立迁移脚本
-  const { stdout, stderr } = await execAsync('node server/migrate-device-keys.js', {
+  const scriptPath = join(__dirname, 'migrate-device-keys.js');
+  const { stdout, stderr } = await execAsync(`node "${scriptPath}"`, {
     env: { ...process.env, DB_PATH: TEST_DB_PATH }
   });
 

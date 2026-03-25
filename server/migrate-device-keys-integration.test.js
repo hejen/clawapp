@@ -1,9 +1,12 @@
 import Database from './db.js';
 import { migrateDeviceKeys } from './migrate-device-keys.js';
 import { unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-const TEST_DB_PATH = join(process.cwd(), 'server', 'test-migration-integration.db');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const TEST_DB_PATH = join(__dirname, 'test-migration-integration.db');
 
 function cleanup() {
   try { unlinkSync(TEST_DB_PATH); } catch {}

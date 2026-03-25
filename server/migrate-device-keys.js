@@ -43,18 +43,25 @@ export async function migrateDeviceKeys(db) {
 }
 
 // 如果直接运行此脚本
-if (import.meta.url === `file://${process.argv[1]}`) {
-  import('./db.js').then(({ default: Database }) => {
-    import('path').then(({ join, dirname }) => {
-      const dbPath = process.env.DB_PATH || join(dirname(process.argv[1]), 'data', 'chat.db');
+if (process.argv[1] && import.meta.url === `file:///${process.argv[1].replace(/\\/g, '/')}`) {
+  (async () => {
+    try {
+      const { default: Database } = await import('./db.js');
+      const { join, dirname } = await import('path');
+      const { fileURLToPath } = await import('url');
+
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const dbPath = process.env.DB_PATH || join(__dirname, 'data', 'chat.db');
+
       const db = new Database(dbPath);
-      db.init().then(() => migrateDeviceKeys(db)).then(() => {
-        console.log('Migration completed successfully');
-        process.exit(0);
-      }).catch(err => {
-        console.error('Migration failed:', err);
-        process.exit(1);
-      });
-    });
-  });
+      await db.init();
+      await migrateDeviceKeys(db);
+      console.log('Migration completed successfully');
+      process.exit(0);
+    } catch (err) {
+      console.error('Migration failed:', err);
+      process.exit(1);
+    }
+  })();
 }
