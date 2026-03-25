@@ -384,6 +384,44 @@ export class Database {
     return null;
   }
 
+  // ==================== Device Key Operations ====================
+
+  /**
+   * Get device key for a user
+   * @param {number} userId - User ID
+   * @returns {object|null} Device key object or null if not set
+   */
+  async getUserDeviceKey(userId) {
+    const row = await this.get(
+      'SELECT device_id, device_public_key, device_private_key_pem FROM users WHERE id = ?',
+      [userId]
+    );
+    if (!row || !row.device_id) return null;
+    return {
+      deviceId: row.device_id,
+      publicKey: row.device_public_key,
+      privateKeyPem: row.device_private_key_pem
+    };
+  }
+
+  /**
+   * Get device key for an access token
+   * @param {string} token - Token string
+   * @returns {object|null} Device key object or null if not set
+   */
+  async getTokenDeviceKey(token) {
+    const row = await this.get(
+      'SELECT device_id, device_public_key, device_private_key_pem FROM access_tokens WHERE token = ?',
+      [token]
+    );
+    if (!row || !row.device_id) return null;
+    return {
+      deviceId: row.device_id,
+      publicKey: row.device_public_key,
+      privateKeyPem: row.device_private_key_pem
+    };
+  }
+
   /**
    * Close database connection
    */
