@@ -208,6 +208,32 @@ function createConnectFrame(nonce, userDeviceKey = null, username = null, userId
 }
 
 /**
+ * Fetch user device key for session isolation
+ * @param {object} session - Session object with jwtUserId or token
+ * @param {string} sid - Session ID for logging
+ * @param {object} db - Database instance
+ * @returns {object|null} User device key or null (fallback to global key)
+ */
+async function fetchUserDeviceKey(session, sid, db) {
+  let userDeviceKey;
+  try {
+    if (session.jwtUserId) {
+      userDeviceKey = await db.getUserDeviceKey(session.jwtUserId);
+    } else if (session.token) {
+      userDeviceKey = await db.getTokenDeviceKey(session.token);
+    }
+  } catch (error) {
+    log.error(`Failed to fetch device key for session [${sid}]:`, error.message);
+    userDeviceKey = null;
+  }
+
+  if (!userDeviceKey) {
+    log.warn(`No device key found for session [${sid}], using global key`);
+  }
+  return userDeviceKey;
+}
+
+/**
  * 生成 Node 角色 connect 握手帧
  * mode=node 以支持 system.notify 指令
  */
@@ -313,7 +339,7 @@ function cleanupSession(sid) {
 /**
  * 处理上游消息（Gateway → 代理服务端）
  */
-function handleUpstreamMessage(sid, rawData) {
+async function handleUpstreamMessage(sid, rawData) {
   const session = sessions.get(sid);
   if (!session) return;
 
@@ -413,7 +439,11 @@ function handleUpstreamMessage(sid, rawData) {
     log.info(`收到 connect.challenge [${sid}]`);
     if (session._connectTimer) { clearTimeout(session._connectTimer); session._connectTimer = null; }
     const nonce = message.payload?.nonce || '';
-    const connectFrame = createConnectFrame(nonce, null, session.username, session.jwtUserId);
+
+    // Fetch user device key for user isolation
+    const userDeviceKey = await fetchUserDeviceKey(session, sid, db);
+
+    const connectFrame = createConnectFrame(nonce, userDeviceKey, session.username, session.jwtUserId);
     if (session.upstream?.readyState === WebSocket.OPEN) {
       session.upstream.send(JSON.stringify(connectFrame));
     }
@@ -444,7 +474,7 @@ function handleUpstreamMessage(sid, rawData) {
 /**
  * 建立到 Gateway 的上游 WS 连接，返回 Promise（握手完成后 resolve）
  */
-function connectToGateway(sid) {
+async function connectToGateway(sid) {
   const session = sessions.get(sid);
   if (!session) return Promise.reject(new Error('会话不存在'));
 
@@ -459,13 +489,17 @@ function connectToGateway(sid) {
     session.upstream = upstream;
     session.state = 'connecting';
 
-    upstream.on('open', () => {
+    upstream.on('open', async () => {
       log.info(`上游连接已建立 [${sid}]`);
       // 等 500ms 看是否收到 challenge
-      session._connectTimer = setTimeout(() => {
+      session._connectTimer = setTimeout(async () => {
         if (session.state === 'connecting') {
           log.info(`未收到 challenge，直接发送 connect [${sid}]`);
-          upstream.send(JSON.stringify(createConnectFrame('', null, session.username, session.jwtUserId)));
+
+          // Fetch user device key for user isolation
+          const userDeviceKey = await fetchUserDeviceKey(session, sid, db);
+
+          upstream.send(JSON.stringify(createConnectFrame('', userDeviceKey, session.username, session.jwtUserId)));
         }
       }, 500);
     });
