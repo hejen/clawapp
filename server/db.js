@@ -38,6 +38,9 @@ export class Database {
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         email TEXT UNIQUE,
+        device_id TEXT UNIQUE,
+        device_public_key TEXT NOT NULL DEFAULT '',
+        device_private_key_pem TEXT NOT NULL DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )`,
@@ -51,7 +54,10 @@ export class Database {
         is_active BOOLEAN DEFAULT 1,
         expires_at DATETIME,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        created_by TEXT
+        created_by TEXT,
+        device_id TEXT UNIQUE,
+        device_public_key TEXT NOT NULL DEFAULT '',
+        device_private_key_pem TEXT NOT NULL DEFAULT ''
       )`,
 
       // User sessions table
