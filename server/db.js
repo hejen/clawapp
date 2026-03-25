@@ -144,13 +144,16 @@ export class Database {
    * @param {string} username - Username
    * @param {string} passwordHash - Hashed password
    * @param {string} email - User email (optional)
+   * @param {string} deviceId - Device ID (optional)
+   * @param {string} devicePublicKey - Device public key (optional)
+   * @param {string} devicePrivateKeyPem - Device private key in PEM format (optional)
    */
-  async createUser(username, passwordHash, email) {
+  async createUser(username, passwordHash, email, deviceId = null, devicePublicKey = null, devicePrivateKeyPem = null) {
     const sql = `
-      INSERT INTO users (username, password_hash, email)
-      VALUES (?, ?, ?)
+      INSERT INTO users (username, password_hash, email, device_id, device_public_key, device_private_key_pem)
+      VALUES (?, ?, ?, ?, ?, ?)
     `;
-    const result = await this.run(sql, [username, passwordHash, email]);
+    const result = await this.run(sql, [username, passwordHash, email, deviceId, devicePublicKey, devicePrivateKeyPem]);
     return this.findUserById(result.id);
   }
 

@@ -2,6 +2,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
+import { generateDeviceKey } from './device-keys.js';
 
 class AuthManager {
   constructor(db, jwtSecret) {
@@ -61,10 +62,20 @@ class AuthManager {
     // Hash password
     const passwordHash = await this.hashPassword(password);
 
-    // Create user
-    const userId = await this.db.createUser(username, passwordHash, email);
+    // Generate device keys
+    const deviceKey = generateDeviceKey();
 
-    return userId;
+    // Create user with device keys
+    const user = await this.db.createUser(
+      username,
+      passwordHash,
+      email,
+      deviceKey.deviceId,
+      deviceKey.publicKey,
+      deviceKey.privateKeyPem
+    );
+
+    return user.id;
   }
 
   // ============ JWT Operations ============
