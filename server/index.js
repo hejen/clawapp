@@ -155,7 +155,7 @@ function setSessionProgress(session, patch = {}) {
 /**
  * 生成 connect 握手帧（含 Ed25519 device 签名）
  */
-function createConnectFrame(nonce, username = null, userId = null) {
+function createConnectFrame(nonce, userDeviceKey = null, username = null, userId = null) {
   const signedAt = Date.now();
   const credential = CONFIG.gatewayPassword || CONFIG.gatewayToken;
 
@@ -163,8 +163,21 @@ function createConnectFrame(nonce, username = null, userId = null) {
   // We pass user identification through the userAgent field instead
   const clientId = 'gateway-client';
 
-  const payload = ['v2', deviceKey.deviceId, clientId, 'backend', 'operator', SCOPES.join(','), String(signedAt), credential, nonce || ''].join('|');
-  const signature = ed25519Sign(null, Buffer.from(payload, 'utf8'), devicePrivateKey).toString('base64url');
+  // Validate userDeviceKey structure if provided
+  if (userDeviceKey !== null) {
+    if (!userDeviceKey.privateKeyPem || !userDeviceKey.deviceId || !userDeviceKey.publicKey) {
+      throw new Error('Invalid userDeviceKey: missing required fields (privateKeyPem, deviceId, publicKey)');
+    }
+  }
+
+  // Use user device key if provided, otherwise fall back to global device key
+  const deviceKeyToUse = userDeviceKey || deviceKey;
+  const privateKeyToUse = userDeviceKey
+    ? createPrivateKey(userDeviceKey.privateKeyPem)
+    : devicePrivateKey;
+
+  const payload = ['v2', deviceKeyToUse.deviceId, clientId, 'backend', 'operator', SCOPES.join(','), String(signedAt), credential, nonce || ''].join('|');
+  const signature = ed25519Sign(null, Buffer.from(payload, 'utf8'), privateKeyToUse).toString('base64url');
   const auth = CONFIG.gatewayPassword
     ? { password: CONFIG.gatewayPassword }
     : { token: CONFIG.gatewayToken };
@@ -187,7 +200,7 @@ function createConnectFrame(nonce, username = null, userId = null) {
       scopes: SCOPES,
       caps: [],
       auth,
-      device: { id: deviceKey.deviceId, publicKey: deviceKey.publicKey, signedAt, nonce, signature },
+      device: { id: deviceKeyToUse.deviceId, publicKey: deviceKeyToUse.publicKey, signedAt, nonce, signature },
       locale: 'zh-CN',
       userAgent,
     },
@@ -400,7 +413,7 @@ function handleUpstreamMessage(sid, rawData) {
     log.info(`收到 connect.challenge [${sid}]`);
     if (session._connectTimer) { clearTimeout(session._connectTimer); session._connectTimer = null; }
     const nonce = message.payload?.nonce || '';
-    const connectFrame = createConnectFrame(nonce, session.username, session.jwtUserId);
+    const connectFrame = createConnectFrame(nonce, null, session.username, session.jwtUserId);
     if (session.upstream?.readyState === WebSocket.OPEN) {
       session.upstream.send(JSON.stringify(connectFrame));
     }
@@ -452,7 +465,7 @@ function connectToGateway(sid) {
       session._connectTimer = setTimeout(() => {
         if (session.state === 'connecting') {
           log.info(`未收到 challenge，直接发送 connect [${sid}]`);
-          upstream.send(JSON.stringify(createConnectFrame('', session.username, session.jwtUserId)));
+          upstream.send(JSON.stringify(createConnectFrame('', null, session.username, session.jwtUserId)));
         }
       }, 500);
     });
@@ -540,7 +553,7 @@ function startBgOperator() {
   let connTimer = null;
   ws.on('open', () => {
     connTimer = setTimeout(() => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(createConnectFrame('')));
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(createConnectFrame('', null, null, null)));
     }, 500);
   });
 
@@ -550,7 +563,7 @@ function startBgOperator() {
 
     if (msg.type === 'event' && msg.event === 'connect.challenge') {
       if (connTimer) { clearTimeout(connTimer); connTimer = null; }
-      ws.send(JSON.stringify(createConnectFrame(msg.payload?.nonce || '')));
+      ws.send(JSON.stringify(createConnectFrame(msg.payload?.nonce || '', null, null, null)));
       return;
     }
 
