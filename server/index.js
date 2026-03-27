@@ -1142,7 +1142,7 @@ app.post('/api/connect', async (req, res) => {
       // Session key format: agent:<agentId>:<channel>:<peerId> (4 parts, like Feishu)
       // Feishu format: agent:main:feishu:ou_abc123
       // Our format: agent:counselor-bot:jwt:<userId>
-      const agentId = defaults?.defaultAgentId || 'main';
+      const agentId = defaults?.defaultAgentId || 'counselor-bot';
 
       log.info(`[/api/connect] JWT user lookup, userId: ${jwtUserId}, agentId: ${agentId}`);
 
@@ -1164,8 +1164,20 @@ app.post('/api/connect', async (req, res) => {
       }
     } else {
       // For token users, use Gateway's default session
-      sessionKey = defaults?.mainSessionKey || `agent:${defaults?.defaultAgentId || 'main'}:main`;
+      sessionKey = defaults?.mainSessionKey || `agent:${defaults?.defaultAgentId || 'counselor-bot'}:main`;
       log.info(`[/api/connect] Token user, sessionKey: ${sessionKey}`);
+    }
+
+    // SECURITY: Prevent use of 'main' agent sessions
+    // The 'main' agent is reserved for system use and should not be used by users
+    if (sessionKey && (sessionKey.includes(':main:') || sessionKey.includes(':main:jwt:') || sessionKey.startsWith('agent:main:'))) {
+      log.warn(`[/api/connect] Blocked attempt to use 'main' agent session: userId=${jwtUserId}, sessionKey=${sessionKey}`);
+      cleanupSession(sid);
+      return res.status(403).json({
+        ok: false,
+        error: '不允许使用main agent。请使用counselor-bot或其他指定的agent。',
+        code: 'FORBIDDEN_AGENT'
+      });
     }
 
     log.info(`会话建立成功 [${sid}] (${authType} auth), sessionKey: ${sessionKey}`);
@@ -1444,6 +1456,18 @@ app.post('/api/sessions', async (req, res) => {
         userId = decoded.userId;
         username = decoded.username;
       }
+    }
+
+    // SECURITY: Prevent creation of 'main' agent sessions
+    // The 'main' agent is reserved for system use and should not be used by users
+    // All user sessions should use 'counselor-bot' or other specific agents
+    if (agentId === 'main' || (gatewaySessionId && gatewaySessionId.includes(':main:'))) {
+      log.warn(`[/api/sessions] Blocked attempt to create 'main' agent session: userId=${userId}, agentId=${agentId}, sessionId=${gatewaySessionId}`);
+      return res.status(403).json({
+        ok: false,
+        error: '不允许创建main agent的会话。请使用counselor-bot或其他指定的agent。',
+        code: 'FORBIDDEN_AGENT'
+      });
     }
 
     // For JWT users, use the actual agentId (e.g., counselor-bot)
