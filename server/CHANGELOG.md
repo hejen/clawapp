@@ -34,6 +34,27 @@ invalid chat.send params: at root: unexpected property 'metadata'
 
 1. `MEMORY-ISOLATION-TROUBLESHOOTING-SUMMARY.md` - 完整的问题排查总结
 2. `METADATA-IMPLEMENTATION-ROLLBACK-REPORT.md` - 回滚报告
+3. `AGENT-RESTRICTIONS-IMPLEMENTATION.md` - Agent限制功能实施文档
+4. `SESSION-DELETION-LIMITATIONS.md` - 会话删除限制说明
+
+### ⚠️ 已知限制
+
+**会话删除不同步问题**:
+- 删除会话时，仅从我们数据库中删除
+- OpenClaw中的会话仍保留（缺少API）
+- 原因：OpenClaw Gateway Protocol没有提供sessions.delete方法
+- 影响：OpenClaw中会积累已删除的会话
+- 监控：添加了删除日志，便于后续分析
+- 详见：[SESSION-DELETION-LIMITATIONS.md](SESSION-DELETION-LIMITATIONS.md)
+
+### 🔒 安全 (Security)
+
+**Agent使用限制**:
+- 默认agent设置为`counselor-bot`
+- 禁止创建或使用`main` agent的会话
+- 多层验证（/api/sessions和/api/connect）
+- 403 Forbidden响应和会话清理
+- 详细安全日志记录
 
 ### 📚 已有的文档（保留）
 

@@ -19,6 +19,18 @@
    - sessionKey格式修复的详细报告
    - 之前完成的重要工作
 
+4. **[SESSION-DELETION-LIMITATIONS.md](SESSION-DELETION-LIMITATIONS.md)** ⚠️
+   - 会话删除的限制说明
+   - OpenClaw API缺失问题
+   - 监控和清理建议
+
+### 功能文档
+
+5. **[AGENT-RESTRICTIONS-IMPLEMENTATION.md](AGENT-RESTRICTIONS-IMPLEMENTATION.md)**
+   - Agent限制功能实施文档
+   - 默认agent设置为counselor-bot
+   - 禁止使用main agent
+
 ### 问题排查文档
 
 4. **[METADATA-IMPLEMENTATION-ROLLBACK-REPORT.md](METADATA-IMPLEMENTATION-ROLLBACK-REPORT.md)**
@@ -62,6 +74,10 @@
 - `METADATA-TEST-REPORT.md` - 测试报告
 - `METADATA-IMPLEMENTATION-ROLLBACK-REPORT.md` - 回滚报告
 
+#### 功能文档
+- `AGENT-RESTRICTIONS-IMPLEMENTATION.md` - Agent限制功能实施
+- `SESSION-DELETION-LIMITATIONS.md` - 会话删除限制说明
+
 ### 按时间顺序
 
 1. 2026-03-20: `SESSIONKEY-FIX-REPORT.md` - sessionKey格式修复
@@ -73,6 +89,8 @@
    - `METADATA-FINAL-VALIDATION-PLAN.md` - metadata验证计划
    - `METADATA-IMPLEMENTATION-ROLLBACK-REPORT.md` - metadata回滚报告
    - `MEMORY-ISOLATION-TROUBLESHOOTING-SUMMARY.md` - 问题排查总结
+   - `AGENT-RESTRICTIONS-IMPLEMENTATION.md` - Agent限制功能实施
+   - `SESSION-DELETION-LIMITATIONS.md` - 会话删除限制说明
    - `CHANGELOG.md` - 变更日志
 
 ## 🔍 快速查找指南
@@ -100,6 +118,12 @@
 - sessionKey格式（4部分和3部分）
 - 用户设备key管理
 - 聊天消息发送
+- Agent限制（默认counselor-bot，禁止main）
+- 会话删除（仅从我们数据库）
+
+### ⚠️ 已知限制
+- 会话删除不同步：删除会话时，OpenClaw中的会话仍保留（缺少API）
+- 详见：[SESSION-DELETION-LIMITATIONS.md](SESSION-DELETION-LIMITATIONS.md)
 
 ### 🔧 已回滚的实现
 - chat.send中的metadata添加（被OpenClaw Gateway拒绝）

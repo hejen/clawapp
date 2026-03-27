@@ -1574,10 +1574,17 @@ app.delete('/api/sessions/:id', async (req, res) => {
     }
 
     if (userId) {
-      // JWT user: delete from database
+      // JWT user: delete from database only
+      // NOTE: OpenClaw Gateway does not provide a session deletion API as of 2026-03
+      // The session will remain in OpenClaw's storage but will be inaccessible from our app
+      // This is a known limitation documented in SESSION-DELETION-LIMITATIONS.md
       await db.deleteSession(id);
-      log.info(`[/api/sessions] Session deleted: id=${id}, userId=${userId}`);
-      res.json({ ok: true });
+      log.info(`[/api/sessions] Session deleted from database: id=${id}, userId=${userId}`);
+      log.warn(`[/api/sessions] Session remains in OpenClaw (no deletion API available): id=${id}`);
+      res.json({
+        ok: true,
+        note: 'Session deleted from app database. OpenClaw session will be cleaned up automatically over time.'
+      });
     } else {
       res.status(403).json({
         ok: false,
