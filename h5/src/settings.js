@@ -133,7 +133,7 @@ export function showSettings() {
           <input type="password" id="pwd-new" class="settings-pwd-input" placeholder="${t('settings.password.new')}" />
           <input type="password" id="pwd-confirm" class="settings-pwd-input" placeholder="${t('settings.password.confirm')}" />
           <div class="settings-pwd-msg" id="pwd-msg"></div>
-          <button class="settings-toggle" id="pwd-submit">${t('settings.password.submit')}</button>
+          <button class="settings-primary-btn" id="pwd-submit">${t('settings.password.submit')}</button>
         </div>
       </div>
 
@@ -142,7 +142,7 @@ export function showSettings() {
           ${t('settings.disconnect')}
         </button>
         ${authManager.isAuthenticated() && authManager.getAuthInfo().type === 'jwt' ? `
-        <button class="settings-disconnect-btn" id="settings-logout" style="margin-top:8px;background:#e94560">
+        <button class="settings-disconnect-btn" id="settings-logout" style="margin-top:8px">
           ${t('settings.logout')}
         </button>
         ` : ''}
@@ -155,10 +155,6 @@ export function showSettings() {
             <div class="settings-about-name">OpenClaw Chat</div>
             <div class="settings-about-ver">${t('about.version')} ${__APP_VERSION__}</div>
           </div>
-        </div>
-        <div class="settings-about-links">
-          <a href="https://github.com/openclaw/openclaw" target="_blank" rel="noopener">OpenClaw</a>
-          <a href="https://github.com/openclaw/openclaw-chat" target="_blank" rel="noopener">Source Code</a>
         </div>
       </div>
     </div>
