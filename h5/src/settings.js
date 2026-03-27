@@ -58,7 +58,6 @@ export function showSettings() {
   const currentTheme = getTheme()
   const currentLang = getLang()
   const currentLayout = getLayout()
-  const currentDetailedMode = getDetailedMode()
 
   panel.innerHTML = `
     <div class="cmd-panel-header">
@@ -104,19 +103,6 @@ export function showSettings() {
           </button>
           <button class="settings-toggle ${currentLayout === 'wide' ? 'active' : ''}" data-value="wide">
             ${t('settings.layout.wide')}
-          </button>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <div class="settings-label">${t('settings.detailedMode')}</div>
-        <div class="settings-desc" style="font-size:12px;color:#666;margin-bottom:8px">${t('settings.detailedMode.desc')}</div>
-        <div class="settings-toggle-group" id="detailed-mode-toggle">
-          <button class="settings-toggle ${!currentDetailedMode ? 'active' : ''}" data-value="false">
-            ${t('settings.detailedMode.simple')}
-          </button>
-          <button class="settings-toggle ${currentDetailedMode ? 'active' : ''}" data-value="true">
-            ${t('settings.detailedMode.detailed')}
           </button>
         </div>
       </div>
@@ -191,18 +177,6 @@ export function showSettings() {
       setLayout(btn.dataset.value)
       panel.querySelectorAll('#layout-toggle .settings-toggle').forEach(b => b.classList.remove('active'))
       btn.classList.add('active')
-    }
-  })
-
-  // 详细模式切换
-  panel.querySelectorAll('#detailed-mode-toggle .settings-toggle').forEach(btn => {
-    btn.onclick = () => {
-      const value = btn.dataset.value === 'true'
-      setDetailedMode(value)
-      panel.querySelectorAll('#detailed-mode-toggle .settings-toggle').forEach(b => b.classList.remove('active'))
-      btn.classList.add('active')
-      // 触发自定义事件，通知其他模块设置已更改
-      window.dispatchEvent(new CustomEvent('detailed-mode-change', { detail: { enabled: value } }))
     }
   })
 

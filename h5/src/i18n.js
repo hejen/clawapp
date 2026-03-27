@@ -194,11 +194,6 @@ const messages = {
     'login.error.mismatch': '两次输入的密码不一致',
     'login.register.success': '注册成功！请登录',
     'settings.logout': '退出登录',
-    // 详细模式
-    'settings.detailedMode': '详细模式',
-    'settings.detailedMode.desc': '显示 AI 思考、工具调用等中间处理信息',
-    'settings.detailedMode.simple': '简洁模式（推荐）',
-    'settings.detailedMode.detailed': '详细模式',
   },
   'en': {
     'app.title': 'OpenClaw Chat',
@@ -373,11 +368,6 @@ const messages = {
     'login.error.mismatch': 'Passwords do not match',
     'login.register.success': 'Registration successful! Please login',
     'settings.logout': 'Logout',
-    // Detailed mode
-    'settings.detailedMode': 'Detailed Mode',
-    'settings.detailedMode.desc': 'Show intermediate processing like AI thinking, tool calls, etc.',
-    'settings.detailedMode.simple': 'Simple (Recommended)',
-    'settings.detailedMode.detailed': 'Detailed',
     'media.file': 'File',
     'media.download': 'Download',
     'media.unsupported': 'Unsupported media type',

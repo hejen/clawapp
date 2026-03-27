@@ -348,13 +348,6 @@ export function initChatUI(onSettings) {
   initMedia(_previewBar, updateSendState)
   initSettings(onSettings)
 
-  // 监听详细模式设置变化，重新加载历史消息
-  window.addEventListener('detailed-mode-change', () => {
-    if (_sessionKey) {
-      loadHistory()
-    }
-  })
-
   // 页面就绪后静默检查通知权限（已 granted 则无感，'default' 则不主动弹窗——由用户在设置里开启）
   if (isNotifySupported && Notification.permission === 'granted') {
     // 已授权，无需任何操作
@@ -1251,8 +1244,10 @@ export async function loadHistory() {
       clearMessages()
       local.forEach(msg => {
         const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date()
+        // Only render known roles to avoid displaying system/protocol messages
         if (msg.role === 'user') appendUserMessage(msg.content || '', msg.attachments || null, msgTime)
-        else appendAiMessage(msg.content || '', msgTime)
+        else if (msg.role === 'assistant') appendAiMessage(msg.content || '', msgTime)
+        // Skip all other roles (system, no_reply, tool, etc.)
       })
       scrollToBottom()
     }
@@ -1280,28 +1275,36 @@ export async function loadHistory() {
 
     // 有待发送/发送中的本地消息时，不要全量重绘，避免覆盖本地乐观渲染
     if (hasExisting && (_isSending || _isStreaming || _messageQueue.length > 0)) {
-      saveMessages(chatResult.messages.map(m => {
-        const c = extractContent(m)
-        return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
-      }))
+      // Only save user and assistant messages
+      saveMessages(chatResult.messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => {
+          const c = extractContent(m)
+          return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
+        }))
       return
     }
 
     clearMessages()
     deduped.forEach(msg => {
       const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date()
+      // Only render known roles
       if (msg.role === 'user') {
         appendUserMessage(msg.text, msg.images?.length ? msg.images.map(i => ({ content: i.data, mimeType: i.mediaType, category: 'image' })) : null, msgTime)
       } else if (msg.role === 'assistant') {
         appendAiMessage(msg.text, msgTime, msg.images, msg.videos, msg.audios, msg.files)
       }
+      // Skip all other roles (system messages, protocol messages, etc.)
     })
     // 将通知条按时间插到对应位置
     insertNotifyItemsInOrder(notifyItems)
-    saveMessages(chatResult.messages.map(m => {
-      const c = extractContent(m)
-      return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
-    }))
+    // Only save user and assistant messages to localStorage (filter out system/protocol messages)
+    saveMessages(chatResult.messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => {
+        const c = extractContent(m)
+        return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
+      }))
     scrollToBottom()
   } catch (e) {
     console.error('[chat] loadHistory error:', e)
