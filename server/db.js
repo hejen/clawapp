@@ -471,6 +471,26 @@ export class Database {
   }
 
   /**
+   * Save device key for a user (auto-generate for memory isolation)
+   * @param {number} userId - User ID
+   * @param {object} deviceKey - Device key object with deviceId, publicKey, privateKeyPem
+   * @returns {boolean} True if saved successfully
+   */
+  async saveUserDeviceKey(userId, deviceKey) {
+    try {
+      const result = await this.run(
+        'UPDATE users SET device_id = ?, device_public_key = ?, device_private_key_pem = ? WHERE id = ?',
+        [deviceKey.deviceId, deviceKey.publicKey, deviceKey.privateKeyPem, userId]
+      );
+      console.log(`[saveUserDeviceKey] Updated user ${userId}, changes: ${result.changes}`);
+      return result.changes > 0;
+    } catch (error) {
+      console.error(`[saveUserDeviceKey] Error saving device key for user ${userId}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Close database connection
    */
   async close() {

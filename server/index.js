@@ -190,13 +190,18 @@ function createConnectFrame(nonce, userDeviceKey = null, username = null, userId
     ? `OpenClaw-Mobile-Proxy/1.0.0 [${username}(${userId})]`
     : 'OpenClaw-Mobile-Proxy/1.0.0';
 
-  return {
+  // 诊断日志：查看传递给Gateway的完整connect frame结构
+  // Add displayName to client object for better identification in control UI
+  // Gateway uses: client.displayName ?? client.id
+  const clientDisplayName = (username && userId) ? `user:${userId} (${username})` : clientId;
+
+  const connectFrame = {
     type: 'req',
     id: `connect-${randomUUID()}`,
     method: 'connect',
     params: {
       minProtocol: 3, maxProtocol: 3,
-      client: { id: clientId, version: '1.0.0', platform: 'web', mode: 'backend' },
+      client: { id: clientId, displayName: clientDisplayName, version: '1.0.0', platform: 'web', mode: 'backend' },
       role: 'operator',
       scopes: SCOPES,
       caps: [],
@@ -206,10 +211,15 @@ function createConnectFrame(nonce, userDeviceKey = null, username = null, userId
       userAgent,
     },
   };
+
+  log.info(`[createConnectFrame] FULL CONNECT FRAME:`, JSON.stringify(connectFrame, null, 2));
+  log.info(`[createConnectFrame] Device ID: ${deviceKeyToUse.deviceId}, Username: ${username}, UserId: ${userId}`);
+
+  return connectFrame;
 }
 
 /**
- * Fetch user device key for session isolation
+ * Fetch or create user device key for memory isolation
  * @param {object} session - Session object with jwtUserId or token
  * @param {string} sid - Session ID for logging
  * @param {object} db - Database instance
@@ -220,11 +230,30 @@ async function fetchUserDeviceKey(session, sid, db) {
   try {
     if (session.jwtUserId) {
       userDeviceKey = await db.getUserDeviceKey(session.jwtUserId);
+      log.info(`[fetchUserDeviceKey] User ${session.jwtUserId} device key from DB: ${userDeviceKey ? 'FOUND' : 'NOT FOUND'}`);
+
+      // CRITICAL: Auto-generate device key for JWT users to ensure memory isolation
+      // OpenClaw uses device.id to associate memory, so each user needs unique device.id
+      if (!userDeviceKey) {
+        log.info(`Auto-generating device key for JWT user [${sid}], userId: ${session.jwtUserId}`);
+        const { generateDeviceKey } = await import('./device-keys.js');
+        const newDeviceKey = await generateDeviceKey();
+        userDeviceKey = {
+          deviceId: newDeviceKey.deviceId,
+          publicKey: newDeviceKey.publicKey,
+          privateKeyPem: newDeviceKey.privateKeyPem,
+          privateKey: newDeviceKey.privateKeyPem  // PEM format for createPrivateKey
+        };
+
+        // Save to database
+        const saved = await db.saveUserDeviceKey(session.jwtUserId, userDeviceKey);
+        log.info(`Device key generated and ${saved ? 'SAVED' : 'FAILED TO SAVE'} for user ${session.jwtUserId}: ${userDeviceKey.deviceId.substring(0, 16)}...`);
+      }
     } else if (session.token) {
       userDeviceKey = await db.getTokenDeviceKey(session.token);
     }
   } catch (error) {
-    log.error(`Failed to fetch device key for session [${sid}]:`, error.message);
+    log.error(`Failed to fetch/generate device key for session [${sid}]:`, error.message);
     userDeviceKey = null;
   }
 
@@ -455,10 +484,13 @@ async function handleUpstreamMessage(sid, rawData) {
   if (message.type === 'res' && message.id?.startsWith('connect-')) {
     if (!message.ok || message.error) {
       log.error(`Gateway 握手失败 [${sid}]:`, message.error || '未知错误');
+      // 存储错误信息，用于配对成功后重试
+      session._lastError = message.error;
       session._connectReject?.(new Error(message.error?.message || 'Gateway 握手失败'));
     } else {
       log.info(`Gateway 握手成功 [${sid}]`);
       session.state = 'connected';
+      session._lastError = null; // 清除错误状态
       session.hello = message.payload;
       session.snapshot = message.payload?.snapshot || null;
       // 发送缓存消息
@@ -624,18 +656,49 @@ function startBgOperator() {
       return;
     }
 
-    // 实时捕获 device.pair.requested
-    if (msg.type === 'event' && msg.event === 'device.pair.requested' &&
-        msg.payload?.deviceId === nodeDeviceKey.deviceId) {
+    // 实时捕获 device.pair.requested 并自动批准
+    // 对于可信环境（如localhost Gateway），自动批准所有设备配对请求
+    if (msg.type === 'event' && msg.event === 'device.pair.requested') {
       const requestId = msg.payload.requestId;
-      log.info(`[node-setup] 实时审批 node 配对: ${requestId}`);
-      bgOpRequest('device.pair.approve', { requestId })
-        .then(() => {
-          log.info('[node-setup] 实时审批完成，1s 后 node 重连');
-          if (_nodeReconnectTimer) clearTimeout(_nodeReconnectTimer);
-          _nodeReconnectTimer = setTimeout(startNodeClient, 1000);
-        })
-        .catch(e => log.warn('[node-setup] 实时审批失败:', e.message));
+      const deviceId = msg.payload.deviceId;
+      const isNodeDevice = deviceId === nodeDeviceKey.deviceId;
+
+      if (isNodeDevice) {
+        log.info(`[node-setup] 实时审批 node 配对: ${requestId}`);
+        bgOpRequest('device.pair.approve', { requestId })
+          .then(() => {
+            log.info('[node-setup] node 审批完成，1s 后重连');
+            if (_nodeReconnectTimer) clearTimeout(_nodeReconnectTimer);
+            _nodeReconnectTimer = setTimeout(startNodeClient, 1000);
+          })
+          .catch(e => log.warn('[node-setup] node 审批失败:', e.message));
+      } else {
+        // 自动批准用户设备配对请求（实现用户设备隔离）
+        log.info(`[auto-pair] 自动批准用户设备配对: deviceId=${deviceId.slice(0, 12)}..., requestId=${requestId}`);
+        bgOpRequest('device.pair.approve', { requestId })
+          .then(() => {
+            log.info(`[auto-pair] 用户设备配对成功: ${deviceId.slice(0, 12)}...，触发所有等待会话重试`);
+            // 触发所有等待配对的会话立即重试
+            sessions.forEach((session, sid) => {
+              if (session.state === 'init' && session._lastError?.code === 'NOT_PAIRED') {
+                log.info(`[auto-pair] 触发会话 ${sid.slice(0, 8)}... 重试连接`);
+                // 清除旧的错误状态
+                session._lastError = null;
+                // 延迟500ms后重试连接
+                setTimeout(async () => {
+                  try {
+                    log.info(`[auto-pair] 重试会话 ${sid.slice(0, 8)}... 连接`);
+                    await connectToGateway(sid);
+                    log.info(`[auto-pair] 会话 ${sid.slice(0, 8)}... 连接成功`);
+                  } catch (e) {
+                    log.warn(`[auto-pair] 会话 ${sid.slice(0, 8)}... 重试失败: ${e.message}`);
+                  }
+                }, 500);
+              }
+            });
+          })
+          .catch(e => log.warn('[auto-pair] 用户设备配对失败:', e.message));
+      }
     }
   });
 
@@ -1069,21 +1132,35 @@ app.post('/api/connect', async (req, res) => {
     if (lastError) throw lastError;
 
     const defaults = session.snapshot?.sessionDefaults;
+    log.info(`[/api/connect] Session defaults:`, JSON.stringify(defaults, null, 2));
     let sessionKey;
 
     // For JWT users, use user-specific session (if exists)
     if (authType === 'jwt' && jwtUserId) {
-      // Get user's session without auto-creating
-      log.info(`[/api/connect] JWT user lookup, userId: ${jwtUserId}, agentId: ${defaults?.defaultAgentId || 'main'}`);
-      const userSession = await db.getUserSession(jwtUserId, defaults?.defaultAgentId || 'main');
+      // Use the actual agentId from Gateway (e.g., counselor-bot)
+      // All users share the same agent, but each user has their own peerId for memory isolation
+      // Session key format: agent:<agentId>:<channel>:<peerId> (4 parts, like Feishu)
+      // Feishu format: agent:main:feishu:ou_abc123
+      // Our format: agent:counselor-bot:jwt:<userId>
+      const agentId = defaults?.defaultAgentId || 'main';
+
+      log.info(`[/api/connect] JWT user lookup, userId: ${jwtUserId}, agentId: ${agentId}`);
+
+      // Check if user has an existing session for this agent
+      const userSession = await db.getUserSession(jwtUserId, agentId);
       if (userSession) {
         // User has an existing session, use its gateway_session_id as sessionKey
         sessionKey = userSession.gateway_session_id;
         log.info(`[/api/connect] JWT user session FOUND, sessionKey: ${sessionKey}`);
       } else {
-        // User has no sessions, return null to indicate "no session" state
-        sessionKey = null;
-        log.info(`[/api/connect] JWT user has NO sessions, returning sessionKey=null`);
+        // Generate user-specific sessionKey for memory isolation
+        // CRITICAL: Use 4-part format to match OpenClaw's parsing
+        // Format: agent:<agentId>:<channel>:<peerId>
+        // - agentId: counselor-bot
+        // - channel: jwt
+        // - peerId: <userId> (user-specific unique identifier)
+        sessionKey = `agent:${agentId}:jwt:${jwtUserId}`;
+        log.info(`[/api/connect] JWT user has NO sessions, generated user-specific sessionKey: ${sessionKey}`);
       }
     } else {
       // For token users, use Gateway's default session
@@ -1109,7 +1186,25 @@ app.post('/api/connect', async (req, res) => {
     res.json(responseData);
   } catch (e) {
     log.error(`会话建立失败 [${sid}]:`, e.message);
+
+    // 检查是否为配对失败
+    const isPairingError = e.message?.includes('NOT_PAIRED') || e.message?.includes('pairing required');
+
+    if (isPairingError) {
+      // 配对失败：保持会话，等待自动配对成功后重试
+      log.info(`[auto-pair] 会话 ${sid.slice(0, 8)}... 等待配对，不清理会话`);
+      // 返回特殊状态，让客户端知道正在配对中
+      return res.status(202).json({
+        ok: false,
+        error: '设备配对中，请稍后...',
+        code: 'PAIRING_PENDING',
+        sid
+      });
+    }
+
+    // 其他错误：清理会话
     cleanupSession(sid);
+
     // 将技术错误映射为用户友好提示
     let userError = e.message;
     if (/ECONNREFUSED/.test(userError)) {
@@ -1280,8 +1375,8 @@ app.post('/api/send', async (req, res) => {
   const reqId = `rpc-${randomUUID()}`;
 
   log.info(`RPC 请求 [${sid}] id=${reqId} method=${method}`);
-  const frame = { type: 'req', id: reqId, method, params };
 
+  // 处理 chat.send 请求
   if (method === 'chat.send') {
     setSessionProgress(session, {
       isBusy: true,
@@ -1289,7 +1384,14 @@ app.post('/api/send', async (req, res) => {
       runId: '',
       state: 'sending',
     });
+
+    // 诊断日志
+    const userId = session.jwtUserId;
+    const username = session.username;
+    log.info(`[chat.send] Session: ${sid.slice(0, 8)}..., User: ${username || 'N/A'} (ID: ${userId || 'N/A'}), SessionKey: ${params?.sessionKey || 'none'}`);
   }
+
+  const frame = { type: 'req', id: reqId, method, params };
 
   try {
     const result = await new Promise((resolve, reject) => {
@@ -1324,6 +1426,147 @@ app.get('/api/notify-history', (req, res) => {
     .filter(n => n.sentAt >= cutoff)
     .map(n => ({ ...n.payload, _sentAt: n.sentAt }));
   res.json({ ok: true, items });
+});
+
+/** POST /api/sessions — 创建新会话 */
+app.post('/api/sessions', async (req, res) => {
+  const { gatewaySessionId, agentId, title, metadata } = req.body || {};
+
+  try {
+    // Get JWT user info if available
+    let userId = null;
+    let username = null;
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const jwtToken = authHeader.substring(7);
+      const decoded = authManager.verifyJWT(jwtToken);
+      if (decoded) {
+        userId = decoded.userId;
+        username = decoded.username;
+      }
+    }
+
+    // For JWT users, use the actual agentId (e.g., counselor-bot)
+    // All users share the same agent, but peerId contains userId for memory isolation
+    let finalAgentId = agentId;
+    let finalGatewaySessionId = gatewaySessionId;
+
+    if (userId) {
+      // JWT user: generate user-specific sessionKey if not provided
+      const agentIdToUse = finalAgentId || 'counselor-bot';
+
+      if (!finalGatewaySessionId) {
+        // Generate sessionKey in 4-part format: agent:<agentId>:<channel>:<peerId>
+        // This matches OpenClaw's parsing and ensures memory isolation
+        finalGatewaySessionId = `agent:${agentIdToUse}:jwt:${userId}`;
+      }
+
+      log.info(`[/api/sessions] JWT user creating session: userId=${userId}, agentId=${agentIdToUse}, sessionId=${finalGatewaySessionId}`);
+    } else {
+      log.info(`[/api/sessions] Token user creating session: agentId=${finalAgentId}, sessionId=${finalGatewaySessionId}`);
+    }
+
+    // For JWT users, save session to database
+    if (userId && finalGatewaySessionId && finalAgentId) {
+      const sessionTitle = title || 'My Session';
+      await db.saveSession(userId, finalGatewaySessionId, finalAgentId, sessionTitle, metadata);
+      log.info(`[/api/sessions] Session saved to database: userId=${userId}, sessionId=${finalGatewaySessionId}`);
+    }
+
+    res.json({
+      ok: true,
+      gateway_session_id: finalGatewaySessionId,
+      agent_id: finalAgentId,
+      title,
+      metadata
+    });
+  } catch (error) {
+    log.error(`[/api/sessions] Error creating session:`, error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to create session'
+    });
+  }
+});
+
+/** GET /api/sessions — 列出当前用户的会话 */
+app.get('/api/sessions', async (req, res) => {
+  try {
+    // Get JWT user info if available
+    let userId = null;
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const jwtToken = authHeader.substring(7);
+      const decoded = authManager.verifyJWT(jwtToken);
+      if (decoded) {
+        userId = decoded.userId;
+      }
+    }
+
+    if (userId) {
+      // JWT user: return user's sessions from database
+      const userSessions = await db.getUserSessions(userId);
+      res.json({
+        ok: true,
+        sessions: userSessions.map(s => ({
+          id: s.id,
+          gateway_session_id: s.gateway_session_id,
+          agent_id: s.agent_id,
+          title: s.title,
+          created_at: s.created_at,
+          updated_at: s.updated_at
+        }))
+      });
+    } else {
+      // Token user: no session listing (sessions managed by Gateway)
+      res.json({
+        ok: true,
+        sessions: []
+      });
+    }
+  } catch (error) {
+    log.error(`[/api/sessions] GET error:`, error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to list sessions'
+    });
+  }
+});
+
+/** DELETE /api/sessions/:id — 删除会话 */
+app.delete('/api/sessions/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // Get JWT user info if available
+    let userId = null;
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+      const jwtToken = authHeader.substring(7);
+      const decoded = authManager.verifyJWT(jwtToken);
+      if (decoded) {
+        userId = decoded.userId;
+      }
+    }
+
+    if (userId) {
+      // JWT user: delete from database
+      await db.deleteSession(id);
+      log.info(`[/api/sessions] Session deleted: id=${id}, userId=${userId}`);
+      res.json({ ok: true });
+    } else {
+      res.status(403).json({
+        ok: false,
+        error: 'Token users cannot delete sessions through this API'
+      });
+    }
+  } catch (error) {
+    log.error(`[/api/sessions] DELETE error:`, error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to delete session'
+    });
+  }
 });
 
 /** POST /api/disconnect — 断开会话 */
