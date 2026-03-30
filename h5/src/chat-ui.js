@@ -391,8 +391,16 @@ export function initChatUI(onSettings) {
   document.getElementById('reload-btn').onclick = () => location.reload()
   document.getElementById('settings-btn').onclick = () => showSettings()
   document.getElementById('session-title').onclick = () => showSessionPicker()
-  document.getElementById('rename-btn').onclick = () => {
-    if (!_sessionKey || !_currentSessionId) return
+  document.getElementById('rename-btn').onclick = async () => {
+    if (!_sessionKey) return
+    // 如果 _currentSessionId 还未加载，先从 API 获取
+    if (!_currentSessionId) {
+      await fetchSessionInfo(_sessionKey)
+      if (!_currentSessionId) {
+        appendSystemMessage(t('session.load.error') || '无法获取会话信息')
+        return
+      }
+    }
     promptRenameSession(
       _currentSessionId,
       _sessionTitle || '',
