@@ -214,8 +214,10 @@ export function createChatPage() {
   page.innerHTML = `
     <div class="chat-header">
       <div class="status-dot" id="status-dot"></div>
-      <div class="title" id="session-title">ClawApp</div>
-      <button class="settings-btn" id="rename-btn" title="${t('session.rename')}">${SVG_EDIT}</button>
+      <div class="title-group">
+        <div class="title" id="session-title">ClawApp</div>
+        <button class="rename-btn" id="rename-btn" title="${t('session.rename')}">${SVG_EDIT}</button>
+      </div>
       <button class="settings-btn" id="reload-btn" title="${t('settings.reload')}">${SVG_RELOAD}</button>
       <button class="settings-btn" id="settings-btn">${SVG_SETTINGS}</button>
     </div>

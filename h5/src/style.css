@@ -354,11 +354,47 @@ html, body {
   50% { opacity: 0.3; }
 }
 
-.chat-header .title {
+.chat-header .title-group {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-header .title {
   font-size: 16px;
   font-weight: 600;
   letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-header .rename-btn {
+  width: 26px;
+  height: 26px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: color 0.2s, background 0.2s;
+  opacity: 0.5;
+}
+
+.chat-header .rename-btn:hover {
+  opacity: 0.8;
+  color: var(--text-secondary);
+}
+
+.chat-header .title-group:hover .rename-btn {
+  opacity: 1;
+  color: var(--text-secondary);
 }
 
 .chat-header .settings-btn {
