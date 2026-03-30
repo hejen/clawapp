@@ -158,18 +158,35 @@ router.post('/sessions', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'agent_id 不能为空' });
     }
 
+    let finalGatewaySessionId = req.body.gatewaySessionId;
+
+    // 如果没有提供 gatewaySessionId，生成一个
+    if (!finalGatewaySessionId) {
+      // 导入 UUID 工具函数
+      const { generateSessionKey } = await import('./utils/uuid.js');
+
+      // 检查 sessionKey 是否已存在的函数
+      const checkExists = async (sessionKey) => {
+        const existing = await req.db.findSessionByGatewayId(sessionKey);
+        return !!existing;
+      };
+
+      // 生成唯一的 sessionKey（带重试机制）
+      finalGatewaySessionId = await generateSessionKey(agentId, checkExists);
+    }
+
     const sessionId = await req.db.saveSession(
       req.user.id,
-      req.body.gatewaySessionId,
+      finalGatewaySessionId,
       agentId,
-      title,
+      title || 'New Chat',
       metadata
     );
 
     const session = await req.db.findSessionById(sessionId);
-
     res.status(201).json(session);
   } catch (error) {
+    console.error('[API] createSession error:', error);
     res.status(500).json({ error: error.message });
   }
 });
