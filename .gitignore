@@ -29,3 +29,4 @@ server/.notify-history.json
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
+logs/server.pid
