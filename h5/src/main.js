@@ -8,6 +8,13 @@ import { authManager } from './auth.js'
 import { api } from './api.js'
 import { getApiBase } from './config.js'
 
+// PWA Service Worker 更新检测：新 SW 激活后自动刷新页面
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload()
+  })
+}
+
 const STORAGE_KEY = 'clawapp-config'
 const GUIDE_KEY = 'clawapp-guide-shown'
 
