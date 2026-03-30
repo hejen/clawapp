@@ -159,7 +159,8 @@ async function promptNewSession() {
     defaultAgent = 'counselor-bot'
   }
 
-  const defaultSessionName = uuid().split('-')[0]
+  // 改为友好的默认名称
+  const defaultSessionName = t('session.new.default.name') || '新会话'
 
   const overlay = document.createElement('div')
   overlay.className = 'session-overlay cmd-overlay visible'
@@ -205,9 +206,9 @@ async function promptNewSession() {
     confirmBtn.textContent = t('session.loading')
 
     try {
-      const gatewaySessionId = `agent:${agent}:${name}`
-      const result = await api.createSession(gatewaySessionId, agent, name)
-      const newKey = result.gateway_session_id || gatewaySessionId
+      // 修改：不传递 gatewaySessionId，让服务器生成
+      const result = await api.createSession(null, agent, name)
+      const newKey = result.gateway_session_id
 
       overlay.remove()
       dialog.remove()
