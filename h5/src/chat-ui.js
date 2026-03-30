@@ -6,7 +6,7 @@ import { t, formatRelativeTime } from './i18n.js'
 import { initSettings, showSettings, getDetailedMode } from './settings.js'
 import { saveMessage, saveMessages, getLocalMessages, clearSessionMessages, isStorageAvailable, saveSessionInfo } from './message-db.js'
 import { requestPermission, showNotification, isSupported as isNotifySupported } from './notify.js'
-import { initSessionPicker, setPickerSessionKey, showSessionPicker } from './session-picker.js'
+import { initSessionPicker, setPickerSessionKey, showSessionPicker, promptRenameSession } from './session-picker.js'
 import { authManager } from './auth.js'
 
 const STORAGE_SESSION_KEY = 'clawapp-session-key'
@@ -30,6 +30,7 @@ let _previewBar = null
 let _sessionKey = ''
 let _serverSessionKey = ''
 let _sessionTitle = ''  // 当前会话的标题（来自数据库）
+let _currentSessionId = null  // 当前会话的数据库 ID（用于修改名称）
 let _isStreaming = false
 let _isSending = false     // chat.send 请求中
 let _messageQueue = []     // 消息队列（发送中时排队）
@@ -66,6 +67,7 @@ const SVG_SETTINGS = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none
 const SVG_STOP = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`
 const SVG_MIC = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`
 const SVG_RELOAD = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`
+const SVG_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5a2.121 2.121 0 013-3z"/></svg>`
 
 let _recognition = null
 let _isRecording = false
@@ -210,6 +212,7 @@ export function createChatPage() {
     <div class="chat-header">
       <div class="status-dot" id="status-dot"></div>
       <div class="title" id="session-title">ClawApp</div>
+      <button class="settings-btn" id="rename-btn" title="${t('session.rename')}">${SVG_EDIT}</button>
       <button class="settings-btn" id="reload-btn" title="${t('settings.reload')}">${SVG_RELOAD}</button>
       <button class="settings-btn" id="settings-btn">${SVG_SETTINGS}</button>
     </div>
@@ -356,6 +359,21 @@ export function initChatUI(onSettings) {
   document.getElementById('reload-btn').onclick = () => location.reload()
   document.getElementById('settings-btn').onclick = () => showSettings()
   document.getElementById('session-title').onclick = () => showSessionPicker()
+  document.getElementById('rename-btn').onclick = () => {
+    if (!_sessionKey || !_currentSessionId) return
+    promptRenameSession(
+      _currentSessionId,
+      _sessionTitle || '',
+      (newTitle) => {
+        _sessionTitle = newTitle
+        updateSessionTitle()
+        refreshSessionList().catch(() => {})
+      },
+      (e) => {
+        appendSystemMessage(`${t('session.load.error')}: ${e.message}`)
+      }
+    )
+  }
   initSessionPicker({
     onSwitch: switchSession,
     onSystemMsg: appendSystemMessage,
@@ -1467,9 +1485,10 @@ function hideDisconnectBanner() {
 }
 
 /** 切换到指定会话 */
-function switchSession(newKey, title = null) {
+function switchSession(newKey, title = null, sessionId = null) {
   _sessionKey = newKey
   _sessionTitle = title || ''  // 保存会话标题
+  _currentSessionId = sessionId  // 保存数据库 ID
   setPickerSessionKey(newKey)
   localStorage.setItem(getUserStorageKey(STORAGE_SESSION_KEY), newKey)
   _lastHistoryHash = ''

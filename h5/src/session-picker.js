@@ -119,7 +119,7 @@ export async function refreshSessionList() {
       // 点击切换会话
       item.querySelector('.session-item-content').onclick = () => {
         if (key === _sessionKey) { closeSessionPicker(); return }
-        _onSwitch?.(key, name)  // 传递会话名称
+        _onSwitch?.(key, name, sessionId)  // 传递会话名称和数据库 ID
         closeSessionPicker()
       }
 
@@ -197,7 +197,15 @@ async function promptNewSession() {
   dialog.querySelector('.cancel').onclick = () => { overlay.remove(); dialog.remove() }
   dialog.querySelector('.confirm').onclick = async () => {
     const name = dialog.querySelector('#new-session-name').value.trim()
-    if (!name) return
+    if (!name) {
+      // 提示用户输入名称
+      const input = dialog.querySelector('#new-session-name')
+      input.style.borderColor = 'var(--danger, #e74c3c)'
+      input.placeholder = t('session.new.name.required') || '请输入会话名称'
+      input.focus()
+      setTimeout(() => { input.style.borderColor = '' }, 2000)
+      return
+    }
     const agentSelect = dialog.querySelector('#new-session-agent')
     const agent = agentSelect?.value || defaultAgent
 
@@ -272,4 +280,69 @@ function confirmDeleteSession(sessionId, key, name) {
 export function closeSessionPicker() {
   document.querySelector('.session-overlay')?.remove()
   document.querySelector('.session-panel')?.remove()
+}
+
+/** 修改会话名称弹窗
+ * @param {number} sessionId - 会话数据库 ID
+ * @param {string} currentTitle - 当前会话标题
+ * @param {Function} onSuccess - 修改成功后的回调 (newTitle) => void
+ * @param {Function} onError - 修改失败的回调 (error) => void
+ */
+export async function promptRenameSession(sessionId, currentTitle, onSuccess, onError) {
+  // 移除可能已存在的弹窗
+  document.querySelectorAll('.rename-overlay, .rename-dialog').forEach(el => el.remove())
+
+  const overlay = document.createElement('div')
+  overlay.className = 'session-overlay cmd-overlay visible'
+
+  const dialog = document.createElement('div')
+  dialog.className = 'session-dialog'
+  dialog.innerHTML = `
+    <h3>${t('session.rename') || '修改名称'}</h3>
+    <div class="form-group" style="margin:16px 0">
+      <input type="text" id="rename-session-name" value="${escapeText(currentTitle)}" placeholder="${t('session.new.name.placeholder')}"
+        style="width:100%;height:40px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text-primary);font-size:14px;outline:none" />
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="session-dialog-btn cancel">${t('cancel')}</button>
+      <button class="session-dialog-btn confirm">${t('session.rename.confirm') || '确定'}</button>
+    </div>
+  `
+
+  overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); dialog.remove() } }
+  dialog.querySelector('.cancel').onclick = () => { overlay.remove(); dialog.remove() }
+  dialog.querySelector('.confirm').onclick = async () => {
+    const newName = dialog.querySelector('#rename-session-name').value.trim()
+    if (!newName) {
+      const input = dialog.querySelector('#rename-session-name')
+      input.style.borderColor = 'var(--danger, #e74c3c)'
+      input.placeholder = t('session.new.name.required') || '请输入会话名称'
+      input.focus()
+      setTimeout(() => { input.style.borderColor = '' }, 2000)
+      return
+    }
+
+    const confirmBtn = dialog.querySelector('.confirm')
+    confirmBtn.disabled = true
+    confirmBtn.textContent = t('session.loading')
+
+    try {
+      await api.updateSessionTitle(sessionId, newName)
+      overlay.remove()
+      dialog.remove()
+      onSuccess?.(newName)
+    } catch (e) {
+      confirmBtn.disabled = false
+      confirmBtn.textContent = t('session.rename.confirm') || '确定'
+      onError?.(e)
+    }
+  }
+
+  document.body.appendChild(overlay)
+  document.body.appendChild(dialog)
+  dialog.querySelector('#rename-session-name').focus()
+  dialog.querySelector('#rename-session-name').select()
+  dialog.querySelector('#rename-session-name').onkeydown = (e) => {
+    if (e.key === 'Enter') dialog.querySelector('.confirm').click()
+  }
 }
