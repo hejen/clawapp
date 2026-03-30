@@ -96,9 +96,17 @@ export class API {
     return this.request('GET', '/api/sessions');
   }
 
+  /**
+   * Create a new chat session
+   * @param {string|null} gatewaySessionId - Gateway session ID. Pass null to let backend generate UUID (format: agent:{agentId}:{uuid})
+   * @param {string} agentId - Agent identifier
+   * @param {string|null} title - Optional session title
+   * @param {object|null} metadata - Optional metadata
+   * @returns {Promise<object>} Created session data
+   */
   async createSession(gatewaySessionId, agentId, title = null, metadata = null) {
     return this.request('POST', '/api/sessions', {
-      gatewaySessionId,
+      gatewaySessionId,  // 传递 null 时由后端生成 UUID
       agentId,
       title,
       metadata
