@@ -8,8 +8,11 @@ import { saveMessage, saveMessages, getLocalMessages, clearSessionMessages, isSt
 import { requestPermission, showNotification, isSupported as isNotifySupported } from './notify.js'
 import { initSessionPicker, setPickerSessionKey, showSessionPicker, promptRenameSession } from './session-picker.js'
 import { authManager } from './auth.js'
+import { api } from './api.js'
 
 const STORAGE_SESSION_KEY = 'clawapp-session-key'
+const STORAGE_SESSION_TITLE = 'clawapp-session-title'
+const STORAGE_SESSION_ID = 'clawapp-session-id'
 const STORAGE_PENDING_KEY = 'clawapp-pending-sessions'
 
 /**
@@ -259,6 +262,13 @@ export function setSessionKey(key) {
     const saved = localStorage.getItem(storageKey)
     _sessionKey = saved || _serverSessionKey || ''
     if (_sessionKey) localStorage.setItem(storageKey, _sessionKey)
+    // 恢复持久化的会话标题和数据库 ID
+    _sessionTitle = localStorage.getItem(getUserStorageKey(STORAGE_SESSION_TITLE)) || ''
+    _currentSessionId = localStorage.getItem(getUserStorageKey(STORAGE_SESSION_ID)) || null
+    // 如果标题为空，从 API 获取会话信息并持久化
+    if (_sessionKey && !_sessionTitle) {
+      fetchSessionInfo(_sessionKey)
+    }
   }
 
   console.log('[setSessionKey] Final _sessionKey:', _sessionKey)
@@ -266,6 +276,26 @@ export function setSessionKey(key) {
   updateSessionTitle()
   // 如果有会话，确保输入框可用
   if (_sessionKey) enableChatInput()
+}
+
+/** 从 API 获取会话信息（标题、ID）并持久化 */
+async function fetchSessionInfo(sessionKey) {
+  try {
+    const sessions = await api.listSessions()
+    const match = (sessions || []).find(s =>
+      (s.sessionKey || s.key) === sessionKey
+    )
+    if (match) {
+      _sessionTitle = match.title || ''
+      _currentSessionId = match.id
+      localStorage.setItem(getUserStorageKey(STORAGE_SESSION_TITLE), _sessionTitle)
+      if (match.id) localStorage.setItem(getUserStorageKey(STORAGE_SESSION_ID), String(match.id))
+      updateSessionTitle()
+      console.log('[fetchSessionInfo] restored title:', _sessionTitle, 'id:', match.id)
+    }
+  } catch (e) {
+    console.warn('[fetchSessionInfo] failed:', e.message)
+  }
 }
 
 /** 禁用聊天输入（无会话状态） */
@@ -1491,6 +1521,9 @@ function switchSession(newKey, title = null, sessionId = null) {
   _currentSessionId = sessionId  // 保存数据库 ID
   setPickerSessionKey(newKey)
   localStorage.setItem(getUserStorageKey(STORAGE_SESSION_KEY), newKey)
+  // 持久化会话标题和数据库 ID，刷新后可恢复
+  localStorage.setItem(getUserStorageKey(STORAGE_SESSION_TITLE), _sessionTitle)
+  if (sessionId) localStorage.setItem(getUserStorageKey(STORAGE_SESSION_ID), sessionId)
   _lastHistoryHash = ''
   _seenFinalRunIds.clear()
   _lastFinalSig = ''
@@ -1513,8 +1546,12 @@ function switchSession(newKey, title = null, sessionId = null) {
 export function clearCurrentSession() {
   // 清空会话键
   _sessionKey = ''
+  _sessionTitle = ''
+  _currentSessionId = null
   setPickerSessionKey('')
   localStorage.removeItem(getUserStorageKey(STORAGE_SESSION_KEY))
+  localStorage.removeItem(getUserStorageKey(STORAGE_SESSION_TITLE))
+  localStorage.removeItem(getUserStorageKey(STORAGE_SESSION_ID))
 
   // 清空消息列表
   clearMessages()
