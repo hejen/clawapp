@@ -29,15 +29,16 @@ export function generateUUID() {
 /**
  * 生成带重试机制的会话 Key
  * @param {string} agentName - 智能体名称
+ * @param {string|number} userId - 用户 ID
  * @param {Function} checkExists - 检查 sessionKey 是否存在的函数
  * @param {number} maxRetries - 最大重试次数，默认 3
- * @returns {Promise<string>} sessionKey
+ * @returns {Promise<string>} sessionKey，格式：agent:{agentName}:{userId}:{uuid}
  */
-export async function generateSessionKey(agentName, checkExists, maxRetries = 3) {
+export async function generateSessionKey(agentName, userId, checkExists, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const uuid = generateUUID();
-      const sessionKey = `agent:${agentName}:${uuid}`;
+      const sessionKey = `agent:${agentName}:${userId}:${uuid}`;
 
       // 检查是否已存在
       const exists = await checkExists(sessionKey);

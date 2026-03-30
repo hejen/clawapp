@@ -1493,20 +1493,14 @@ function updateSessionTitle() {
     return
   }
 
-  // 从 sessionKey 提取智能体和会话名称
-  // 格式: agent:main:test1 或 agent:counselor-bot:test2
+  // 从 sessionKey 提取智能体 ID
+  // 新格式: agent:{agentId}:{userId}:{uuid}
+  // 旧格式: agent:{agentId}:{uuid}（迁移后不再出现）
   const parts = _sessionKey.split(':')
-  let agent = 'main'
-  let sessionName = ''
+  let agent = parts[1] || 'main'
 
-  if (parts.length >= 3) {
-    agent = parts[1]
-    sessionName = parts.slice(2).join(':')
-  }
-
-  // 使用数据库标题（如果有），否则使用从 sessionKey 提取的名称
-  // 统一格式：[agent] 会话名称
-  let displayName = _sessionTitle || sessionName
+  // 使用数据库标题（如果有），否则不显示（UUID 对用户无意义）
+  let displayName = _sessionTitle || ''
 
   // 如果显示名称不包含智能体前缀，添加前缀（使用友好名称）
   if (!displayName.match(/^\[.+\]\s/)) {

@@ -172,7 +172,7 @@ router.post('/sessions', requireAuth, async (req, res) => {
       };
 
       // 生成唯一的 sessionKey（带重试机制）
-      finalGatewaySessionId = await generateSessionKey(agentId, checkExists);
+      finalGatewaySessionId = await generateSessionKey(agentId, req.user.id, checkExists);
     }
 
     const sessionId = await req.db.saveSession(

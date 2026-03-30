@@ -93,16 +93,12 @@ export async function refreshSessionList() {
       item.className = `cmd-item${isActive ? ' session-active' : ''}`
 
       // 解析会话信息
+      // 新格式: agent:{agentId}:{userId}:{uuid}
       const parts = key.split(':')
-      let name = s.title || key
-      let detail = ''
-      if (parts.length >= 3) {
-        const agent = parts[1]
-        const channel = parts.slice(2).join(':')
-        const agentLabel = getAgentDisplayName(agent)
-        name = s.title || (channel === 'main' ? `${t('session.main')} (${agentLabel})` : channel)
-        detail = agent !== 'main' ? agentLabel : ''
-      }
+      const agent = parts[1] || ''
+      const agentLabel = agent ? getAgentDisplayName(agent) : ''
+      let name = s.title || ''
+      let detail = agent !== 'main' ? agentLabel : ''
 
       // 最后活跃时间
       const updated = s.updatedAt || s.lastActivity

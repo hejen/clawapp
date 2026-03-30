@@ -650,6 +650,41 @@ export class Database {
       }
     });
   }
+
+  /**
+   * 迁移 sessionKey 格式：agent:{agentId}:{uuid} → agent:{agentId}:{userId}:{uuid}
+   * 同时处理旧的 agent:{agentId}:jwt:{userId} 格式为 agent:{agentId}:{userId}:{uuid}
+   */
+  async migrateSessionKeyFormat() {
+    const sessions = await this.all('SELECT id, user_id, gateway_session_id FROM user_sessions');
+    let migrated = 0;
+
+    for (const s of sessions) {
+      const parts = s.gateway_session_id.split(':');
+      // 新格式已经是4段（agent:xxx:userId:uuid），跳过
+      if (parts.length === 4 && parts[0] === 'agent') continue;
+
+      let newKey;
+      if (parts.length === 3 && parts[0] === 'agent') {
+        // 旧格式: agent:{agentId}:{uuid} → agent:{agentId}:{userId}:{uuid}
+        newKey = `agent:${parts[1]}:${s.user_id}:${parts[2]}`;
+      } else if (parts.length === 4 && parts[2] === 'jwt') {
+        // 旧 jwt 格式: agent:{agentId}:jwt:{userId} → agent:{agentId}:{userId}:{uuid}
+        const { generateUUID } = await import('./utils/uuid.js');
+        newKey = `agent:${parts[1]}:${parts[3]}:${generateUUID()}`;
+      } else {
+        continue; // 无法识别的格式，跳过
+      }
+
+      await this.run('UPDATE user_sessions SET gateway_session_id = ? WHERE id = ?', [newKey, s.id]);
+      migrated++;
+    }
+
+    if (migrated > 0) {
+      console.log(`[DB] Migrated ${migrated} session keys to new format (agent:{agentId}:{userId}:{uuid})`);
+    }
+    return migrated;
+  }
 }
 
 export default Database;

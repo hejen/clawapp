@@ -905,6 +905,9 @@ await db.init();
 // Initialize RBAC data
 await db.initializeRBACData();
 
+// 迁移 sessionKey 格式：agent:{agentId}:{uuid} → agent:{agentId}:{userId}:{uuid}
+await db.migrateSessionKeyFormat();
+
 // ==================== 设备密钥迁移 ====================
 
 /**
@@ -1157,12 +1160,10 @@ app.post('/api/connect', async (req, res) => {
         log.info(`[/api/connect] JWT user session FOUND, sessionKey: ${sessionKey}`);
       } else {
         // Generate user-specific sessionKey for memory isolation
-        // CRITICAL: Use 4-part format to match OpenClaw's parsing
-        // Format: agent:<agentId>:<channel>:<peerId>
-        // - agentId: counselor-bot
-        // - channel: jwt
-        // - peerId: <userId> (user-specific unique identifier)
-        sessionKey = `agent:${agentId}:jwt:${jwtUserId}`;
+        // Format: agent:<agentId>:<userId>:<uuid>
+        const { generateSessionKey } = await import('./utils/uuid.js');
+        const { generateUUID } = await import('./utils/uuid.js');
+        sessionKey = await generateSessionKey(agentId, jwtUserId, async () => false);
         log.info(`[/api/connect] JWT user has NO sessions, generated user-specific sessionKey: ${sessionKey}`);
       }
     } else {
@@ -1483,9 +1484,9 @@ app.post('/api/sessions', async (req, res) => {
       const agentIdToUse = finalAgentId || 'counselor-bot';
 
       if (!finalGatewaySessionId) {
-        // Generate sessionKey in 4-part format: agent:<agentId>:<channel>:<peerId>
-        // This matches OpenClaw's parsing and ensures memory isolation
-        finalGatewaySessionId = `agent:${agentIdToUse}:jwt:${userId}`;
+        // Generate sessionKey in 4-part format: agent:<agentId>:<userId>:<uuid>
+        const { generateSessionKey } = await import('./utils/uuid.js');
+        finalGatewaySessionId = await generateSessionKey(agentIdToUse, userId, async () => false);
       }
 
       log.info(`[/api/sessions] JWT user creating session: userId=${userId}, agentId=${agentIdToUse}, sessionId=${finalGatewaySessionId}`);
