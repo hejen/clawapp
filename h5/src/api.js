@@ -97,15 +97,8 @@ export class API {
   }
 
   async createSession(gatewaySessionId, agentId, title = null, metadata = null) {
-    // 如果没有提供 gatewaySessionId，生成一个
-    let finalSessionKey = gatewaySessionId;
-    if (!finalSessionKey && agentId) {
-      const uuid = crypto.randomUUID();
-      finalSessionKey = `agent:${agentId}:${uuid}`;
-    }
-
     return this.request('POST', '/api/sessions', {
-      gatewaySessionId: finalSessionKey,
+      gatewaySessionId,
       agentId,
       title,
       metadata
