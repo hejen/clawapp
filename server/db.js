@@ -72,13 +72,45 @@ export class Database {
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`,
+
+      // Roles table
+      `CREATE TABLE IF NOT EXISTS roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+
+      // Agents table
+      `CREATE TABLE IF NOT EXISTS agents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        enabled BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+
+      // Agent-Role many-to-many relationship
+      `CREATE TABLE IF NOT EXISTS agent_roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_id INTEGER NOT NULL,
+        role_id INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+        FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+        UNIQUE(agent_id, role_id)
       )`
     ];
 
     const indexes = [
       'CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_id)',
       'CREATE INDEX IF NOT EXISTS idx_tokens_token ON access_tokens(token)',
-      'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)'
+      'CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)',
+      'CREATE INDEX IF NOT EXISTS idx_agent_roles_agent ON agent_roles(agent_id)',
+      'CREATE INDEX IF NOT EXISTS idx_agent_roles_role ON agent_roles(role_id)'
     ];
 
     try {
@@ -124,12 +156,79 @@ export class Database {
         await this.run('ALTER TABLE access_tokens ADD COLUMN device_private_key_pem TEXT NOT NULL DEFAULT ""');
         console.log('[DB Migration] Access tokens table migrated successfully');
       }
+
+      // Add role_id to users table
+      const hasUsersRoleId = usersTableInfo.some(col => col.name === 'role_id');
+
+      if (!hasUsersRoleId) {
+        console.log('[DB Migration] Adding role_id to users table...');
+        await this.run('ALTER TABLE users ADD COLUMN role_id INTEGER');
+        console.log('[DB Migration] Users role_id column added');
+      }
     } catch (error) {
       // If column already exists, SQLite will throw an error, which we can ignore
       if (!error.message.includes('duplicate column name')) {
         console.error('[DB Migration] Schema migration error:', error.message);
         throw new Error(`Failed to migrate schema: ${error.message}`);
       }
+    }
+  }
+
+  /**
+   * Initialize RBAC seed data
+   */
+  async initializeRBACData() {
+    try {
+      // Check if already initialized
+      const roleCount = await this.get('SELECT COUNT(*) as count FROM roles');
+      if (roleCount.count > 0) {
+        console.log('[DB] RBAC data already initialized, skipping...');
+        return;
+      }
+
+      console.log('[DB] Initializing RBAC seed data...');
+
+      await this.exec('BEGIN TRANSACTION');
+
+      // Insert default roles
+      await this.run(`
+        INSERT INTO roles (name, display_name, description) VALUES
+          ('regular_user', '普通用户', '默认用户角色，可访问基础智能体'),
+          ('admin', '管理员', '管理员角色，可访问所有智能体')
+      `);
+
+      // Insert default agents
+      await this.run(`
+        INSERT INTO agents (name, display_name, description) VALUES
+          ('counselor-bot', '心理咨询师', '专业的心理咨询智能体'),
+          ('main', '主智能体', '系统主智能体（保留使用）')
+      `);
+
+      // Assign counselor-bot to regular_user role
+      await this.run(`
+        INSERT INTO agent_roles (agent_id, role_id)
+        SELECT a.id, r.id FROM agents a, roles r
+        WHERE a.name = 'counselor-bot' AND r.name = 'regular_user'
+      `);
+
+      // Assign all agents to admin role
+      await this.run(`
+        INSERT INTO agent_roles (agent_id, role_id)
+        SELECT a.id, r.id FROM agents a, roles r
+        WHERE r.name = 'admin'
+      `);
+
+      // Set existing users to regular_user role
+      await this.run(`
+        UPDATE users SET role_id = (SELECT id FROM roles WHERE name = 'regular_user')
+        WHERE role_id IS NULL
+      `);
+
+      await this.exec('COMMIT');
+      console.log('[DB] RBAC seed data initialized successfully');
+    } catch (error) {
+      await this.exec('ROLLBACK');
+      throw error;
     }
   }
 
@@ -173,6 +272,21 @@ export class Database {
           reject(err);
         } else {
           resolve(rows);
+        }
+      });
+    });
+  }
+
+  /**
+   * Helper method for executing SQL without parameters
+   */
+  exec(sql) {
+    return new Promise((resolve, reject) => {
+      this.db.exec(sql, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
         }
       });
     });
@@ -251,6 +365,34 @@ export class Database {
     const sql = `UPDATE users SET ${fields.join(', ')} WHERE id = ?`;
     await this.run(sql, values);
     return this.findUserById(id);
+  }
+
+  // ==================== RBAC Operations ====================
+
+  /**
+   * Get user's role information
+   */
+  async getUserRole(userId) {
+    const sql = `
+      SELECT r.* FROM roles r
+      INNER JOIN users u ON u.role_id = r.id
+      WHERE u.id = ?
+    `;
+    return await this.get(sql, [userId]);
+  }
+
+  /**
+   * Get agents available to a user based on their role
+   */
+  async getAgentsByRole(roleId) {
+    const sql = `
+      SELECT a.name, a.display_name, a.description
+      FROM agents a
+      INNER JOIN agent_roles ar ON ar.agent_id = a.id
+      WHERE ar.role_id = ? AND a.enabled = 1
+      ORDER BY a.id
+    `;
+    return await this.all(sql, [roleId]);
   }
 
   // ==================== Token Operations ====================

@@ -902,6 +902,9 @@ const authManager = new AuthManager(db, JWT_SECRET);
 // 等待数据库初始化
 await db.init();
 
+// Initialize RBAC data
+await db.initializeRBACData();
+
 // ==================== 设备密钥迁移 ====================
 
 /**

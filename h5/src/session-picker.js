@@ -137,10 +137,28 @@ export async function refreshSessionList() {
 }
 
 /** 新建会话弹窗 */
-function promptNewSession() {
+async function promptNewSession() {
   closeSessionPicker()
-  const defaultAgent = 'main'  // Use hardcoded default agent
-  // 生成默认会话名称（使用 UUID 前 8 个字符）
+
+  // Fetch available agents from backend
+  let availableAgents = []
+  let defaultAgent = 'counselor-bot'
+
+  try {
+    const response = await api.request('GET', '/api/agents')
+    if (response.ok && response.agents && response.agents.length > 0) {
+      availableAgents = response.agents
+      defaultAgent = availableAgents[0].name
+    } else {
+      throw new Error('No agents available')
+    }
+  } catch (e) {
+    console.error('Failed to fetch agents:', e)
+    _onSystemMsg?.(`获取智能体列表失败: ${e.message}`)
+    availableAgents = [{ name: 'counselor-bot', display_name: '心理咨询师' }]
+    defaultAgent = 'counselor-bot'
+  }
+
   const defaultSessionName = uuid().split('-')[0]
 
   const overlay = document.createElement('div')
@@ -148,6 +166,11 @@ function promptNewSession() {
 
   const dialog = document.createElement('div')
   dialog.className = 'session-dialog'
+
+  const agentOptions = availableAgents.map(agent =>
+    `<option value="${agent.name}">${agent.display_name}</option>`
+  ).join('')
+
   dialog.innerHTML = `
     <h3>${t('session.new')}</h3>
     <div class="form-group" style="margin:16px 0">
@@ -155,16 +178,13 @@ function promptNewSession() {
       <input type="text" id="new-session-name" value="${defaultSessionName}" placeholder="${t('session.new.name.placeholder')}"
         style="width:100%;height:40px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text-primary);font-size:14px;outline:none" />
     </div>
-    <div style="margin:0 0 16px">
-      <div id="agent-toggle" style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
-        <span style="font-size:13px;color:var(--text-muted)">${t('session.new.agent')}</span>
-        <span id="agent-arrow" style="font-size:11px;color:var(--text-muted)">▶</span>
-      </div>
-      <div id="agent-field" style="display:none;margin-top:8px">
-        <input type="text" id="new-session-agent" value="${defaultAgent}" placeholder="main"
-          style="width:100%;height:40px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text-primary);font-size:14px;outline:none" />
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${t('session.new.agent.hint')}</div>
-      </div>
+    <div class="form-group" style="margin:16px 0">
+      <label style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;display:block">${t('session.new.agent')}</label>
+      <select id="new-session-agent"
+        style="width:100%;height:40px;background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;padding:0 12px;color:var(--text-primary);font-size:14px;outline:none">
+        ${agentOptions}
+      </select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${t('session.new.agent.hint')}</div>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="session-dialog-btn cancel">${t('cancel')}</button>
@@ -172,39 +192,27 @@ function promptNewSession() {
     </div>
   `
 
-  dialog.querySelector('#agent-toggle').onclick = () => {
-    const f = dialog.querySelector('#agent-field')
-    const visible = f.style.display !== 'none'
-    f.style.display = visible ? 'none' : 'block'
-    dialog.querySelector('#agent-arrow').textContent = visible ? '▶' : '▼'
-  }
   overlay.onclick = (e) => { if (e.target === overlay) { overlay.remove(); dialog.remove() } }
   dialog.querySelector('.cancel').onclick = () => { overlay.remove(); dialog.remove() }
   dialog.querySelector('.confirm').onclick = async () => {
     const name = dialog.querySelector('#new-session-name').value.trim()
     if (!name) return
-    const agent = dialog.querySelector('#new-session-agent')?.value.trim() || defaultAgent
+    const agentSelect = dialog.querySelector('#new-session-agent')
+    const agent = agentSelect?.value || defaultAgent
 
-    // Disable button and show loading
     const confirmBtn = dialog.querySelector('.confirm')
     confirmBtn.disabled = true
     confirmBtn.textContent = t('session.loading')
 
     try {
-      // Create session on server
-      // Use unique name in gatewaySessionId to ensure each session has a unique key
       const gatewaySessionId = `agent:${agent}:${name}`
       const result = await api.createSession(gatewaySessionId, agent, name)
-
-      // Use the gateway_session_id from server response as sessionKey
       const newKey = result.gateway_session_id || gatewaySessionId
 
       overlay.remove()
       dialog.remove()
-      _onSwitch?.(newKey, name)  // 传递会话名称和 key
+      _onSwitch?.(newKey, name)
       _onSystemMsg?.(t('session.created', { name }))
-
-      // Refresh session list to show new session
       await refreshSessionList()
     } catch (e) {
       confirmBtn.disabled = false

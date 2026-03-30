@@ -212,6 +212,36 @@ router.put('/sessions/:id', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/agents - Get available agents for current user
+router.get('/agents', requireAuth, async (req, res) => {
+  try {
+    const roleId = req.user.roleId;
+
+    if (!roleId) {
+      return res.status(400).json({
+        ok: false,
+        error: '用户未分配角色'
+      });
+    }
+
+    const agents = await req.db.getAgentsByRole(roleId);
+
+    res.json({
+      ok: true,
+      agents: agents.map(a => ({
+        name: a.name,
+        display_name: a.display_name
+      }))
+    });
+  } catch (error) {
+    console.error('[/api/agents] Error:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message || 'Failed to fetch agents'
+    });
+  }
+});
+
 // ============ Middleware ============
 
 function requireAuth(req, res, next) {

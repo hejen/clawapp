@@ -165,8 +165,8 @@ const messages = {
     'media.download': '下载',
     'media.unsupported': '不支持的媒体类型',
     'media.size.limit': '文件超过大小限制',
-    'session.new.agent': '智能体 (高级)',
-    'session.new.agent.hint': '默认 main，多智能体场景可切换',
+    'session.new.agent': '智能体',
+    'session.new.agent.hint': '请选择要使用的智能体',
     // 通知
     'settings.notify': '通知',
     'settings.notify.enable': '开启通知权限',
@@ -372,8 +372,8 @@ const messages = {
     'media.download': 'Download',
     'media.unsupported': 'Unsupported media type',
     'media.size.limit': 'File exceeds size limit',
-    'session.new.agent': 'Agent (Advanced)',
-    'session.new.agent.hint': 'Default: main',
+    'session.new.agent': 'Agent',
+    'session.new.agent.hint': 'Select an agent to use',
   }
 }
 

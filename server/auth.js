@@ -23,8 +23,16 @@ class AuthManager {
       return null;
     }
 
+    // Fetch user's role information
+    const role = await this.db.getUserRole(user.id);
+
     const token = jwt.sign(
-      { userId: user.id, username: user.username },
+      {
+        userId: user.id,
+        username: user.username,
+        roleId: role?.id,
+        roleName: role?.name
+      },
       this.jwtSecret,
       { expiresIn: '24h', issuer: 'openclaw-chat' }
     );
@@ -34,7 +42,8 @@ class AuthManager {
       user: {
         id: user.id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        role: role
       }
     };
   }
@@ -74,6 +83,16 @@ class AuthManager {
       deviceKey.publicKey,
       deviceKey.privateKeyPem
     );
+
+    // Assign default role (regular_user) to new user
+    try {
+      const role = await this.db.get('SELECT id FROM roles WHERE name = ?', ['regular_user']);
+      if (role) {
+        await this.db.run('UPDATE users SET role_id = ? WHERE id = ?', [role.id, user.id]);
+      }
+    } catch (error) {
+      console.error('[Auth] Failed to assign default role to user:', error.message);
+    }
 
     return user.id;
   }
