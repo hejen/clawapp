@@ -5,6 +5,7 @@
 import { wsClient, uuid } from './api-client.js'
 import { api } from './api.js'
 import { t, formatRelativeTime } from './i18n.js'
+import { getAgentDisplayName } from './chat-ui.js'
 
 let _sessionKey = ''
 let _onSwitch = null
@@ -98,8 +99,9 @@ export async function refreshSessionList() {
       if (parts.length >= 3) {
         const agent = parts[1]
         const channel = parts.slice(2).join(':')
-        name = s.title || (channel === 'main' ? `${t('session.main')} (${agent})` : channel)
-        detail = agent !== 'main' ? `agent: ${agent}` : ''
+        const agentLabel = getAgentDisplayName(agent)
+        name = s.title || (channel === 'main' ? `${t('session.main')} (${agentLabel})` : channel)
+        detail = agent !== 'main' ? agentLabel : ''
       }
 
       // 最后活跃时间
