@@ -13,6 +13,14 @@ import { api } from './api.js'
 const STORAGE_SESSION_KEY = 'clawapp-session-key'
 const STORAGE_SESSION_TITLE = 'clawapp-session-title'
 const STORAGE_SESSION_ID = 'clawapp-session-id'
+
+// agentId → display_name 映射缓存
+let _agentNameMap = {}
+
+/** 获取 agent 的友好显示名称 */
+export function getAgentDisplayName(agentId) {
+  return _agentNameMap[agentId] || agentId
+}
 const STORAGE_PENDING_KEY = 'clawapp-pending-sessions'
 
 /**
@@ -280,6 +288,20 @@ export function setSessionKey(key) {
   if (_sessionKey) enableChatInput()
 }
 
+/** 加载 agent 名称映射（agentId → display_name） */
+async function loadAgentNameMap() {
+  try {
+    const res = await api.request('GET', '/api/agents')
+    if (res.ok && res.agents) {
+      _agentNameMap = {}
+      res.agents.forEach(a => { _agentNameMap[a.name] = a.display_name || a.name })
+      updateSessionTitle()
+    }
+  } catch (e) {
+    console.warn('[loadAgentNameMap] failed:', e.message)
+  }
+}
+
 /** 从 API 获取会话信息（标题、ID）并持久化 */
 async function fetchSessionInfo(sessionKey) {
   try {
@@ -419,6 +441,8 @@ export function initChatUI(onSettings) {
     onSystemMsg: appendSystemMessage,
     onClear: clearCurrentSession,
   })
+  // 加载 agent 名称映射，用于标题栏友好显示
+  loadAgentNameMap()
   // Quick commands temporarily disabled
   // document.getElementById('cmd-btn').onclick = () => showCommands()
   // Attachment upload temporarily disabled
@@ -1484,9 +1508,10 @@ function updateSessionTitle() {
   // 统一格式：[agent] 会话名称
   let displayName = _sessionTitle || sessionName
 
-  // 如果显示名称不包含智能体前缀，添加前缀
+  // 如果显示名称不包含智能体前缀，添加前缀（使用友好名称）
   if (!displayName.match(/^\[.+\]\s/)) {
-    displayName = `[${agent}] ${displayName}`
+    const agentLabel = _agentNameMap[agent] || agent
+    displayName = `[${agentLabel}] ${displayName}`
   }
 
   titleEl.textContent = displayName
