@@ -125,6 +125,7 @@ export class WsClient {
       this._hello = data.hello
       this._sessionKey = data.sessionKey
       this._proxyToken = data.proxyToken || null  // Store PROXY_TOKEN for JWT users
+      this._newUser = data.newUser || false
       this._lastSseEventId = 0
       this._recentEventHashes.clear()
 
@@ -141,11 +142,12 @@ export class WsClient {
       console.log('[api-client] hello:', this._hello)
       console.log('[api-client] sessionKey:', this._sessionKey)
       console.log('[api-client] proxyToken:', this._proxyToken)
+      console.log('[api-client] newUser:', this._newUser)
 
       this._readyCallbacks.forEach(fn => {
         try {
-          console.log('[api-client] Calling onReady callback with:', this._hello, this._sessionKey, { proxyToken: this._proxyToken })
-          fn(this._hello, this._sessionKey, { proxyToken: this._proxyToken })
+          console.log('[api-client] Calling onReady callback with:', this._hello, this._sessionKey, { proxyToken: this._proxyToken, newUser: this._newUser })
+          fn(this._hello, this._sessionKey, { proxyToken: this._proxyToken, newUser: this._newUser })
         } catch (e) {
           console.error('[api-client] onReady callback error:', e)
         }
