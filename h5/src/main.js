@@ -16,7 +16,6 @@ if ('serviceWorker' in navigator) {
 }
 
 const STORAGE_KEY = 'clawapp-config'
-const GUIDE_KEY = 'clawapp-guide-shown'
 
 // 初始化 i18n 和主题
 initI18n()
@@ -349,8 +348,6 @@ async function initApp() {
     }
     // 确保 DOM 就绪后再加载历史
     requestAnimationFrame(() => loadHistory())
-    // 首次使用显示引导
-    showGuideIfNeeded()
   })
 
   // 自动连接
@@ -499,7 +496,7 @@ async function showAgentPicker(onSelect) {
 
     const grid = document.getElementById('agent-picker-grid')
     grid.innerHTML = response.agents.map(agent => `
-      <div class="agent-picker-card" data-agent-id="${agent.name}" data-agent-name="${escapeText(agent.display_name)}">
+      <div class="agent-picker-card" data-agent-id="${escapeText(agent.name)}" data-agent-name="${escapeText(agent.display_name)}">
         <div class="agent-picker-icon">&#129302;</div>
         <div class="agent-picker-name">${escapeText(agent.display_name)}</div>
         ${agent.description ? `<div class="agent-picker-desc">${escapeText(agent.description)}</div>` : ''}
