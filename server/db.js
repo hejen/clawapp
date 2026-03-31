@@ -179,49 +179,47 @@ export class Database {
    */
   async initializeRBACData() {
     try {
-      // Check if already initialized
-      const roleCount = await this.get('SELECT COUNT(*) as count FROM roles');
-      if (roleCount.count > 0) {
-        console.log('[DB] RBAC data already initialized, skipping...');
-        return;
-      }
-
-      console.log('[DB] Initializing RBAC seed data...');
-
       await this.exec('BEGIN TRANSACTION');
 
-      // Insert default roles
-      await this.run(`
+      // Insert default roles (skip if already exist)
+      const roleCount = await this.get('SELECT COUNT(*) as count FROM roles');
+      if (roleCount.count > 0) {
+        console.log('[DB] Roles already exist, skipping role seed...');
+      } else {
+        console.log('[DB] Initializing RBAC seed data...');
+        await this.run(`
         INSERT INTO roles (name, display_name, description) VALUES
           ('regular_user', '普通用户', '默认用户角色，可访问基础智能体'),
           ('admin', '管理员', '管理员角色，可访问所有智能体')
       `);
+      }
 
-      // Insert default agents
+      // Insert default agents (INSERT OR IGNORE for idempotency)
       await this.run(`
-        INSERT INTO agents (name, display_name, description) VALUES
+        INSERT OR IGNORE INTO agents (name, display_name, description) VALUES
           ('counselor-bot', '心理咨询师', '专业的心理咨询智能体'),
-          ('main', '主智能体', '系统主智能体（保留使用）')
+          ('main', '主智能体', '系统主智能体（保留使用）'),
+          ('assistant', '个人小助理', '帮助处理个人事务')
       `);
 
-      // Assign counselor-bot to regular_user role
+      // Assign agents to roles (INSERT OR IGNORE for idempotency)
       await this.run(`
-        INSERT INTO agent_roles (agent_id, role_id)
+        INSERT OR IGNORE INTO agent_roles (agent_id, role_id)
         SELECT a.id, r.id FROM agents a, roles r
         WHERE a.name = 'counselor-bot' AND r.name = 'regular_user'
       `);
 
-      // Assign all agents to admin role
       await this.run(`
-        INSERT INTO agent_roles (agent_id, role_id)
+        INSERT OR IGNORE INTO agent_roles (agent_id, role_id)
         SELECT a.id, r.id FROM agents a, roles r
-        WHERE r.name = 'admin'
+        WHERE a.name = 'assistant' AND r.name = 'regular_user'
       `);
 
-      // Set existing users to regular_user role
+      // Assign all agents to admin role
       await this.run(`
-        UPDATE users SET role_id = (SELECT id FROM roles WHERE name = 'regular_user')
-        WHERE role_id IS NULL
+        INSERT OR IGNORE INTO agent_roles (agent_id, role_id)
+        SELECT a.id, r.id FROM agents a, roles r
+        WHERE r.name = 'admin'
       `);
 
       await this.exec('COMMIT');
