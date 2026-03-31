@@ -247,7 +247,8 @@ router.get('/agents', requireAuth, async (req, res) => {
       ok: true,
       agents: agents.map(a => ({
         name: a.name,
-        display_name: a.display_name
+        display_name: a.display_name,
+        description: a.description || ''
       }))
     });
   } catch (error) {
