@@ -456,27 +456,56 @@ async function connectWithToken(host, token) {
   // The onReady callback is already registered in initApp
 }
 
-/** 新用户引导 */
-function showGuideIfNeeded() {
-  if (localStorage.getItem(GUIDE_KEY)) return
-  localStorage.setItem(GUIDE_KEY, '1')
-
+/** 新用户引导 — Agent 选择页 */
+async function showAgentPicker(onSelect) {
   const overlay = document.createElement('div')
   overlay.className = 'guide-overlay'
+  overlay.id = 'agent-picker-overlay'
   overlay.innerHTML = `
     <div class="guide-card">
-      <h2>${t('guide.welcome')}</h2>
-      <div class="guide-tips">
-        <div class="guide-tip">${t('guide.tip1')}</div>
-        <div class="guide-tip">${t('guide.tip2')}</div>
-        <div class="guide-tip">${t('guide.tip3')}</div>
+      <h2>${t('agent.pick.title')}</h2>
+      <p class="agent-picker-subtitle">${t('agent.pick.subtitle')}</p>
+      <div id="agent-picker-grid" class="agent-picker-grid">
+        <div class="agent-picker-loading">加载中...</div>
       </div>
-      <button class="btn-primary guide-btn">${t('guide.start')}</button>
     </div>
   `
-  overlay.querySelector('.guide-btn').onclick = () => overlay.remove()
-  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove() }
   document.body.appendChild(overlay)
+
+  try {
+    const response = await api.request('GET', '/api/agents')
+    if (!response.ok || !response.agents || response.agents.length === 0) {
+      throw new Error('No agents available')
+    }
+
+    const grid = document.getElementById('agent-picker-grid')
+    grid.innerHTML = response.agents.map(agent => `
+      <div class="agent-picker-card" data-agent-id="${agent.name}" data-agent-name="${escapeText(agent.display_name)}">
+        <div class="agent-picker-icon">&#129302;</div>
+        <div class="agent-picker-name">${escapeText(agent.display_name)}</div>
+        ${agent.description ? `<div class="agent-picker-desc">${escapeText(agent.description)}</div>` : ''}
+      </div>
+    `).join('')
+
+    grid.querySelectorAll('.agent-picker-card').forEach(card => {
+      card.onclick = () => {
+        const agentId = card.dataset.agentId
+        const agentName = card.dataset.agentName
+        overlay.remove()
+        onSelect(agentId, agentName)
+      }
+    })
+  } catch (e) {
+    console.error('[agent-picker] Failed to load agents:', e)
+    const grid = document.getElementById('agent-picker-grid')
+    grid.innerHTML = `<div class="agent-picker-error">${t('session.load.error')}: ${escapeText(e.message)}</div>
+      <button class="btn-primary guide-btn" style="margin-top:12px" id="agent-picker-retry">${t('guide.start')}</button>`
+    document.getElementById('agent-picker-retry').onclick = () => {
+      overlay.remove()
+      // 降级：直接使用默认 agent 创建会话
+      onSelect('counselor-bot', '心理咨询师')
+    }
+  }
 }
 
 // ============ Login Page ============
