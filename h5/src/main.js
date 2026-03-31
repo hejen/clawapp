@@ -219,7 +219,7 @@ async function initApp() {
 
       // Setup Gateway ready callback
       wsClient.onReady((hello, sessionKey, meta) => {
-        console.log('[initApp] WebSocket connected, sessionKey:', sessionKey)
+        console.log('[initApp] WebSocket connected, sessionKey:', sessionKey, 'newUser:', meta?.newUser)
 
         // Re-enable all interactions now that WebSocket is connected
         const chatPage = document.getElementById('chat-page')
@@ -247,8 +247,27 @@ async function initApp() {
             chatInitialized = false
           })
         }
-        requestAnimationFrame(() => loadHistory())
-        showGuideIfNeeded()
+
+        // 新用户：展示 Agent 选择引导页
+        if (meta?.newUser) {
+          showAgentPicker(async (agentId, agentName) => {
+            console.log('[initApp] New user selected agent:', agentId, agentName)
+            try {
+              const result = await api.createSession(null, agentId, agentName)
+              if (result.ok) {
+                setSessionKey(result.gateway_session_id)
+                requestAnimationFrame(() => loadHistory())
+              } else {
+                console.error('[initApp] Failed to create session:', result)
+              }
+            } catch (e) {
+              console.error('[initApp] Failed to create session:', e)
+            }
+          })
+        } else {
+          // 老用户：正常加载历史
+          requestAnimationFrame(() => loadHistory())
+        }
       })
 
       // Connect with JWT token in Authorization header
