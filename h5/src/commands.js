@@ -1,13 +1,106 @@
 /**
- * 快捷指令面板 - 支持 i18n
+ * 快捷指令面板 - 支持角色过滤和命令拦截
  */
 
 import { t } from './i18n.js'
 
-function getCommandGroups() {
+// ============ 角色管理 ============
+
+let _userRole = null
+
+/** 设置当前用户角色 */
+export function setUserRole(roleName) {
+  _userRole = roleName
+  console.log('[commands] User role set:', roleName)
+}
+
+export function getUserRole() {
+  return _userRole
+}
+
+function isAdmin() {
+  return _userRole === 'admin'
+}
+
+// ============ 命令定义 ============
+
+// 所有已知的命令前缀（用于匹配用户输入）
+const KNOWN_COMMAND_PREFIXES = [
+  '/model', '/new', '/reset', '/compact', '/stop',
+  '/think', '/help', '/status', '/whoami', '/commands',
+  '/context', '/skill', '/verbose',
+]
+
+// 需要 admin 权限的命令前缀
+const ADMIN_ONLY_PREFIXES = [
+  '/model', '/think', '/skill', '/verbose', '/compact',
+  '/reset', '/help', '/status', '/whoami', '/commands', '/context',
+]
+
+// 前端本地处理的命令
+const LOCAL_COMMANDS = ['/new', '/stop']
+
+// 判断输入文本是否是命令
+function parseCommand(text) {
+  if (!text.startsWith('/')) return null
+  const trimmed = text.trim()
+  const spaceIdx = trimmed.indexOf(' ')
+  const cmd = spaceIdx === -1 ? trimmed : trimmed.substring(0, spaceIdx)
+  if (!KNOWN_COMMAND_PREFIXES.includes(cmd)) return null
+  return cmd
+}
+
+// 判断命令是否需要 admin 权限
+function isAdminCommand(cmd) {
+  return ADMIN_ONLY_PREFIXES.some(prefix => cmd === prefix || cmd.startsWith(prefix + ' '))
+}
+
+/**
+ * 执行命令拦截
+ * @param {string} text - 用户输入文本
+ * @param {object} handlers - 回调函数
+ * @param {function} handlers.onNew - 处理 /new
+ * @param {function} handlers.onStop - 处理 /stop
+ * @param {function} handlers.onSend - 发送命令给 Agent（admin）
+ * @param {function} handlers.onBlocked - 命令被拦截提示
+ * @returns {'handled'|'blocked'|null} handled=本地处理, blocked=权限不足, null=不是命令
+ */
+export function executeCommand(text, handlers) {
+  const cmd = parseCommand(text)
+  if (!cmd) return null
+
+  // 本地命令：所有用户可用
+  if (cmd === '/new') {
+    handlers.onNew?.()
+    return 'handled'
+  }
+  if (cmd === '/stop') {
+    handlers.onStop?.()
+    return 'handled'
+  }
+
+  // Admin 命令
+  if (isAdminCommand(cmd)) {
+    if (isAdmin()) {
+      handlers.onSend?.(text)
+      return 'handled'
+    } else {
+      handlers.onBlocked?.(cmd)
+      return 'blocked'
+    }
+  }
+
+  // 未知处理（理论上不会到这里）
+  return null
+}
+
+// ============ 命令面板 ============
+
+function getAllCommandGroups() {
   return [
     {
       titleKey: 'cmd.model',
+      adminOnly: true,
       commands: [
         { cmd: '/model', descKey: 'cmd.model.switch', fill: true },
         { cmd: '/model list', descKey: 'cmd.model.list' },
@@ -16,15 +109,17 @@ function getCommandGroups() {
     },
     {
       titleKey: 'cmd.session',
+      adminOnly: false,
       commands: [
         { cmd: '/new', descKey: 'cmd.session.new' },
-        { cmd: '/reset', descKey: 'cmd.session.reset' },
-        { cmd: '/compact', descKey: 'cmd.session.compact' },
+        { cmd: '/reset', descKey: 'cmd.session.reset', adminOnly: true },
+        { cmd: '/compact', descKey: 'cmd.session.compact', adminOnly: true },
         { cmd: '/stop', descKey: 'cmd.session.stop' },
       ],
     },
     {
       titleKey: 'cmd.think',
+      adminOnly: true,
       commands: [
         { cmd: '/think off', descKey: 'cmd.think.off' },
         { cmd: '/think low', descKey: 'cmd.think.low' },
@@ -34,6 +129,7 @@ function getCommandGroups() {
     },
     {
       titleKey: 'cmd.info',
+      adminOnly: true,
       commands: [
         { cmd: '/help', descKey: 'cmd.info.help' },
         { cmd: '/status', descKey: 'cmd.info.status' },
@@ -44,12 +140,14 @@ function getCommandGroups() {
     },
     {
       titleKey: 'cmd.skill',
+      adminOnly: true,
       commands: [
         { cmd: '/skill ', descKey: 'cmd.skill.run', fill: true },
       ],
     },
     {
       titleKey: 'cmd.advanced',
+      adminOnly: true,
       commands: [
         { cmd: '/verbose on', descKey: 'cmd.advanced.verbose.on' },
         { cmd: '/verbose off', descKey: 'cmd.advanced.verbose.off' },
@@ -57,6 +155,20 @@ function getCommandGroups() {
       ],
     },
   ]
+}
+
+function getCommandGroups() {
+  const groups = getAllCommandGroups()
+  if (isAdmin()) return groups
+
+  // 普通用户：过滤掉 adminOnly 的分组和命令
+  return groups
+    .filter(g => !g.adminOnly)
+    .map(g => ({
+      ...g,
+      commands: g.commands.filter(c => !c.adminOnly),
+    }))
+    .filter(g => g.commands.length > 0)
 }
 
 let _overlay = null
@@ -68,7 +180,6 @@ export function initCommands(onSelect) {
 }
 
 function _buildPanel() {
-  // 每次打开重建，确保语言最新
   _overlay?.remove()
   _panel?.remove()
 

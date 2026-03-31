@@ -114,6 +114,9 @@ const messages = {
     'cmd.advanced.verbose.on': '开启详细输出',
     'cmd.advanced.verbose.off': '关闭详细输出',
     'cmd.advanced.compact': '压缩上下文（可附指令）',
+    // 命令拦截
+    'cmd.blocked': '该命令需要管理员权限',
+    'cmd.new.created': '已创建新会话',
     // 工具状态
     'tool.running': '执行中...',
     'tool.done': '已完成',
@@ -306,6 +309,8 @@ const messages = {
     'cmd.advanced.verbose.on': 'Enable verbose output',
     'cmd.advanced.verbose.off': 'Disable verbose output',
     'cmd.advanced.compact': 'Compact context (append instruction)',
+    'cmd.blocked': 'This command requires admin privileges',
+    'cmd.new.created': 'New session created',
     'tool.running': 'Running...',
     'tool.done': 'Done',
     'tool.error': 'Failed',

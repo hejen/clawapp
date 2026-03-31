@@ -2,6 +2,7 @@ import './style.css'
 import { wsClient } from './api-client.js'
 import { createChatPage, initChatUI, setSessionKey, switchToSession, loadHistory } from './chat-ui.js'
 import { initI18n, t, onLangChange } from './i18n.js'
+import { setUserRole } from './commands.js'
 import { initTheme } from './theme.js'
 import { initOfflineHandler } from './offline-queue.js'
 import { authManager } from './auth.js'
@@ -187,6 +188,10 @@ async function initApp() {
     // JWT user authentication: skip setup page, connect directly
     if (authInfo && authInfo.type === 'jwt') {
       console.log('[initApp] JWT auth detected, skipping setup page')
+
+      // 设置用户角色，用于命令权限过滤
+      const roleName = authInfo.user?.role?.name
+      if (roleName) setUserRole(roleName)
       const config = getConfig()
       // Use getApiBase() to get full URL including path (e.g., https://domain:3380/openclaw-chat)
       // For JWT users, we need the full path for proper API routing through nginx

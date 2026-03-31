@@ -1,7 +1,7 @@
 import { wsClient, uuid } from './api-client.js'
 import { renderMarkdown } from './markdown.js'
 import { initMedia, pickImage, pickMedia, getAttachments, clearAttachments, hasAttachments, showLightbox } from './media.js'
-import { initCommands, showCommands } from './commands.js'
+import { initCommands, showCommands, executeCommand } from './commands.js'
 import { t, formatRelativeTime } from './i18n.js'
 import { initSettings, showSettings, getDetailedMode } from './settings.js'
 import { saveMessage, saveMessages, getLocalMessages, clearSessionMessages, isStorageAvailable, saveSessionInfo } from './message-db.js'
@@ -616,6 +616,41 @@ function handleSendClick() {
 async function sendMessage() {
   const text = _textarea.value.trim()
   if (!text && !hasAttachments()) return
+
+  // 命令拦截
+  if (text.startsWith('/')) {
+    const attachments = getAttachments()
+    _textarea.value = ''
+    _textarea.style.height = 'auto'
+    clearAttachments()
+    updateSendState()
+
+    const cmdResult = executeCommand(text, {
+      onNew: async () => {
+        try {
+          const result = await api.createSession(null, null, t('cmd.new.created'))
+          if (result.gateway_session_id) {
+            switchToSession(result.gateway_session_id, t('cmd.new.created'))
+            loadHistory()
+          }
+        } catch (e) {
+          console.error('[cmd] /new failed:', e)
+        }
+      },
+      onStop: () => {
+        abortChat()
+      },
+      onSend: (cmd) => {
+        // admin 命令：继续正常发送流程
+        doSend(cmd, [])
+      },
+      onBlocked: () => {
+        appendSystemMessage(t('cmd.blocked'))
+      },
+    })
+    if (cmdResult === 'handled' || cmdResult === 'blocked') return
+    // 不是已知命令，继续正常发送
+  }
 
   const attachments = getAttachments()
   _textarea.value = ''
