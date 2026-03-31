@@ -253,7 +253,7 @@ async function initApp() {
             console.log('[initApp] New user selected agent:', agentId, agentName)
             try {
               const result = await api.createSession(null, agentId, agentName)
-              if (result.ok) {
+              if (result.gateway_session_id) {
                 setSessionKey(result.gateway_session_id)
                 requestAnimationFrame(() => loadHistory())
               } else {
@@ -495,13 +495,26 @@ async function showAgentPicker(onSelect) {
     }
 
     const grid = document.getElementById('agent-picker-grid')
-    grid.innerHTML = response.agents.map(agent => `
-      <div class="agent-picker-card" data-agent-id="${escapeText(agent.name)}" data-agent-name="${escapeText(agent.display_name)}">
+    grid.innerHTML = ''
+    response.agents.forEach(agent => {
+      const card = document.createElement('div')
+      card.className = 'agent-picker-card'
+      card.dataset.agentId = agent.name
+      card.dataset.agentName = agent.display_name
+      card.innerHTML = `
         <div class="agent-picker-icon">&#129302;</div>
-        <div class="agent-picker-name">${escapeText(agent.display_name)}</div>
-        ${agent.description ? `<div class="agent-picker-desc">${escapeText(agent.description)}</div>` : ''}
-      </div>
-    `).join('')
+        <div class="agent-picker-name"></div>
+        ${agent.description ? '<div class="agent-picker-desc"></div>' : ''}
+      `
+      card.querySelector('.agent-picker-name').textContent = agent.display_name
+      const desc = card.querySelector('.agent-picker-desc')
+      if (desc) desc.textContent = agent.description
+      card.onclick = () => {
+        overlay.remove()
+        onSelect(agent.name, agent.display_name)
+      }
+      grid.appendChild(card)
+    })
 
     grid.querySelectorAll('.agent-picker-card').forEach(card => {
       card.onclick = () => {
@@ -514,7 +527,7 @@ async function showAgentPicker(onSelect) {
   } catch (e) {
     console.error('[agent-picker] Failed to load agents:', e)
     const grid = document.getElementById('agent-picker-grid')
-    grid.innerHTML = `<div class="agent-picker-error">${t('session.load.error')}: ${escapeText(e.message)}</div>
+    grid.innerHTML = `<div class="agent-picker-error">${t('session.load.error')}: ${e.message}</div>
       <button class="btn-primary guide-btn" style="margin-top:12px" id="agent-picker-retry">${t('guide.start')}</button>`
     document.getElementById('agent-picker-retry').onclick = () => {
       overlay.remove()
