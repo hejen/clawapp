@@ -1140,6 +1140,7 @@ app.post('/api/connect', async (req, res) => {
     const defaults = session.snapshot?.sessionDefaults;
     log.info(`[/api/connect] Session defaults:`, JSON.stringify(defaults, null, 2));
     let sessionKey;
+    let connectNewUser = false;
 
     // For JWT users, use user-specific session (if exists)
     if (authType === 'jwt' && jwtUserId) {
@@ -1151,6 +1152,10 @@ app.post('/api/connect', async (req, res) => {
       const agentId = defaults?.defaultAgentId || 'counselor-bot';
 
       log.info(`[/api/connect] JWT user lookup, userId: ${jwtUserId}, agentId: ${agentId}`);
+
+      // 检查是否为新用户（没有任何会话记录）
+      const allUserSessions = await db.getUserSessions(jwtUserId);
+      const isNewUser = !allUserSessions || allUserSessions.length === 0;
 
       // Check if user has an existing session for this agent
       const userSession = await db.getUserSession(jwtUserId, agentId);
@@ -1166,6 +1171,7 @@ app.post('/api/connect', async (req, res) => {
         sessionKey = await generateSessionKey(agentId, jwtUserId, async () => false);
         log.info(`[/api/connect] JWT user has NO sessions, generated user-specific sessionKey: ${sessionKey}`);
       }
+      connectNewUser = isNewUser;
     } else {
       // For token users, use Gateway's default session
       sessionKey = defaults?.mainSessionKey || `agent:${defaults?.defaultAgentId || 'counselor-bot'}:main`;
@@ -1198,6 +1204,9 @@ app.post('/api/connect', async (req, res) => {
     // Return PROXY_TOKEN to JWT users so they can save it for future connections
     if (authType === 'jwt' && effectiveToken) {
       responseData.proxyToken = effectiveToken;
+    }
+    if (connectNewUser) {
+      responseData.newUser = true;
     }
     res.json(responseData);
   } catch (e) {
