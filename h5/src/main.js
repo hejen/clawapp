@@ -9,8 +9,8 @@ import { authManager } from './auth.js'
 import { api } from './api.js'
 import { getApiBase } from './config.js'
 
-// PWA Service Worker 更新检测：新 SW 激活后自动刷新页面
-if ('serviceWorker' in navigator) {
+// PWA Service Worker 更新检测：新 SW 激活后自动刷新页面（仅生产环境）
+if ('serviceWorker' in navigator && !location.hostname.includes('localhost')) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     window.location.reload()
   })

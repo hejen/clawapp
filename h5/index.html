@@ -17,7 +17,8 @@
   <div id="app"></div>
   <script type="module" src="/src/main.js"></script>
   <script>
-    if ('serviceWorker' in navigator) {
+    // 仅在生产环境注册 Service Worker，dev 模式下跳过（避免 SW 缓存导致刷新循环）
+    if ('serviceWorker' in navigator && !location.hostname.includes('localhost') && location.protocol === 'https:') {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     }
   </script>
