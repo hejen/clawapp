@@ -248,6 +248,30 @@ export function createChatPage() {
   return page
 }
 
+/**
+ * 切换到指定会话
+ * @param {string} key - gateway session key
+ * @param {string} [title] - 可选的会话标题
+ */
+export function switchToSession(key, title) {
+  if (!key) return
+  console.log('[switchToSession]', Date.now(), 'key:', key, 'title:', title)
+
+  const storageKey = getUserStorageKey(STORAGE_SESSION_KEY)
+  _sessionKey = key
+  _serverSessionKey = key
+  localStorage.setItem(storageKey, key)
+
+  if (title) {
+    _sessionTitle = title
+    localStorage.setItem(getUserStorageKey(STORAGE_SESSION_TITLE), title)
+  }
+
+  setPickerSessionKey(_sessionKey)
+  updateSessionTitle()
+  enableChatInput()
+}
+
 export function setSessionKey(key) {
   console.log('[setSessionKey v2]', Date.now(), 'key:', key, 'type:', typeof key)
 
