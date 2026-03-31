@@ -152,6 +152,8 @@ const messages = {
     'guide.tip2': '📋 点击顶部标题可切换/管理会话',
     'guide.tip3': '⚙️ 右上角齿轮进入设置（主题/语言）',
     'guide.start': '开始使用',
+    'agent.pick.title': '选择一个智能体开始对话',
+    'agent.pick.subtitle': '选择你感兴趣的智能体，开始你的第一次对话',
     // 连接
     'setup.auto.retry': '正在重新连接...',
     'setup.auto.fail': '自动连接失败，请手动连接',
@@ -338,6 +340,8 @@ const messages = {
     'guide.tip2': '📋 Tap the title bar to switch/manage sessions',
     'guide.tip3': '⚙️ Tap the gear icon for settings (theme/language)',
     'guide.start': 'Get Started',
+    'agent.pick.title': 'Choose an Agent to Start',
+    'agent.pick.subtitle': 'Select an agent you are interested in to begin your first conversation',
     'setup.auto.retry': 'Reconnecting...',
     'setup.auto.fail': 'Auto-connect failed, please connect manually',
     'cancel': 'Cancel',
