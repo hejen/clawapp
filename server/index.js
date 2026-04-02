@@ -142,6 +142,10 @@ const GATEWAY_RETRY_COUNT = 3;
 const GATEWAY_RETRY_DELAY = 1000;
 const PROGRESS_STALE_TIMEOUT = 120000;
 
+// 自动 compact 配置：每 N 轮用户消息后自动压缩上下文
+const AUTO_COMPACT_ROUNDS = parseInt(process.env.AUTO_COMPACT_ROUNDS, 10) || 10;
+const _sessionMsgCount = new Map(); // sessionKey → user message count
+
 function setSessionProgress(session, patch = {}) {
   session.progress = {
     isBusy: session.progress?.isBusy || false,
@@ -343,6 +347,51 @@ function sseWrite(session, event, data) {
 }
 
 /** 清理会话 */
+/**
+ * 自动 compact：当用户消息轮数达到阈值时，异步发送 /compact 压缩上下文
+ * 在 final 事件后触发，避免与用户消息的 LLM 响应冲突
+ */
+async function triggerAutoCompact(session, sessionKey) {
+  const count = _sessionMsgCount.get(sessionKey) || 0;
+  if (count < AUTO_COMPACT_ROUNDS) return;
+
+  if (!session.upstream || session.upstream.readyState !== WebSocket.OPEN) return;
+
+  log.info(`[auto-compact] Session ${sessionKey} reached ${count} messages, sending /compact`);
+
+  const compactId = `auto-compact-${randomUUID()}`;
+  const compactFrame = {
+    type: 'req',
+    id: compactId,
+    method: 'chat.send',
+    params: {
+      sessionKey,
+      message: '/compact',
+      deliver: false,
+      idempotencyKey: randomUUID(),
+    },
+  };
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        session.pendingRequests.delete(compactId);
+        reject(new Error('compact 请求超时'));
+      }, REQUEST_TIMEOUT);
+
+      session.pendingRequests.set(compactId, { resolve, reject, timer });
+      session.upstream.send(JSON.stringify(compactFrame));
+    });
+
+    // compact 成功，重置计数
+    _sessionMsgCount.set(sessionKey, 0);
+    log.info(`[auto-compact] Session ${sessionKey} compact 成功, 计数已重置`);
+  } catch (e) {
+    log.warn(`[auto-compact] Session ${sessionKey} compact 失败: ${e.message}, 计数保持 ${count}`);
+    // 失败不重置计数，下次 final 时会再次尝试
+  }
+}
+
 function cleanupSession(sid) {
   const session = sessions.get(sid);
   if (!session) return;
@@ -363,6 +412,9 @@ function cleanupSession(sid) {
     cb.reject(new Error('会话已关闭'));
   }
   session.pendingRequests.clear();
+  // 清理自动 compact 计数（使用 sessionKey 而非 sid）
+  const sKey = session.progress?.sessionKey;
+  if (sKey) _sessionMsgCount.delete(sKey);
   sessions.delete(sid);
 }
 
@@ -413,6 +465,12 @@ async function handleUpstreamMessage(sid, rawData) {
             runId: payload.runId || session.progress?.runId || '',
             state,
           });
+
+          // final 事件后检查是否需要自动 compact
+          if (state === 'final') {
+            const sKey = payload.sessionKey || session.progress?.sessionKey;
+            if (sKey) triggerAutoCompact(session, sKey);
+          }
         }
       }
 
@@ -1409,6 +1467,12 @@ app.post('/api/send', async (req, res) => {
       runId: '',
       state: 'sending',
     });
+
+    // 统计用户消息轮数（仅计数非 / 开头的消息，排除命令）
+    const sKey = params?.sessionKey;
+    if (sKey && !String(params?.message || '').startsWith('/')) {
+      _sessionMsgCount.set(sKey, (_sessionMsgCount.get(sKey) || 0) + 1);
+    }
 
     // 诊断日志
     const userId = session.jwtUserId;
