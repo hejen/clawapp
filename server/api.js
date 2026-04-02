@@ -154,8 +154,9 @@ router.post('/sessions', requireAuth, async (req, res) => {
   try {
     const { agentId, title, metadata } = req.body;
 
-    // 允许 agentId 为空时使用默认值
-    const finalAgentId = agentId || 'counselor-bot';
+    if (!agentId) {
+      return res.status(400).json({ error: 'agent_id 不能为空' });
+    }
 
     let finalGatewaySessionId = req.body.gatewaySessionId;
 
@@ -171,13 +172,13 @@ router.post('/sessions', requireAuth, async (req, res) => {
       };
 
       // 生成唯一的 sessionKey（带重试机制）
-      finalGatewaySessionId = await generateSessionKey(finalAgentId, req.user.id, checkExists);
+      finalGatewaySessionId = await generateSessionKey(agentId, req.user.id, checkExists);
     }
 
     const sessionId = await req.db.saveSession(
       req.user.id,
       finalGatewaySessionId,
-      finalAgentId,
+      agentId,
       title || 'New Chat',
       metadata
     );
