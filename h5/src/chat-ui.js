@@ -63,6 +63,15 @@ let _seenFinalRunIds = new Set()
 let _lastFinalSig = ''
 let _lastFinalAt = 0
 let _lastReconnectNoticeAt = 0
+let _warmupActive = false  // 会话预热中标记
+const WARMUP_MESSAGE = '请用一两句话简单介绍一下你自己'
+
+/** 判断消息是否应过滤（预热用户消息、compact 响应等） */
+function isFilteredMessage(text) {
+  if (!text) return false
+  return text === WARMUP_MESSAGE || text.startsWith('⚙️') || text.startsWith('Compacted')
+}
+
 const RENDER_THROTTLE = 30 // 渲染节流间隔 ms
 const FINAL_DUP_WINDOW_MS = 5000
 const RECONNECT_NOTICE_COOLDOWN_MS = 5000
@@ -270,6 +279,20 @@ export function switchToSession(key, title) {
   setPickerSessionKey(_sessionKey)
   updateSessionTitle()
   enableChatInput()
+}
+
+/**
+ * 会话预热：新建会话后发送隐藏消息让 Agent 自我介绍
+ * Agent 的回复会正常显示为开场白，同时预热 LLM 冷启动
+ */
+export function warmupSession(sessionKey) {
+  if (!sessionKey) return
+  _warmupActive = true
+  console.log('[warmup] Sending warmup message for session:', sessionKey)
+  wsClient.chatSend(sessionKey, '请用一两句话简单介绍一下你自己').catch(err => {
+    console.warn('[warmup] Failed:', err)
+    _warmupActive = false
+  })
 }
 
 export function setSessionKey(key) {
@@ -631,6 +654,7 @@ async function sendMessage() {
           const result = await api.createSession(null, null, t('cmd.new.created'))
           if (result.gateway_session_id) {
             switchToSession(result.gateway_session_id, t('cmd.new.created'))
+            warmupSession(result.gateway_session_id)
             loadHistory()
           }
         } catch (e) {
@@ -801,6 +825,18 @@ function handleChatEvent(payload) {
     return
   }
 
+  // 过滤 compact/系统命令的响应（如 "⚙️ Compacted..."），不渲染为 AI 消息
+  if (state === 'delta' || state === 'final') {
+    const previewText = extractContent(payload.message)?.text || ''
+    if (previewText.startsWith('⚙️') || previewText.startsWith('Compacted')) {
+      if (state === 'final') {
+        resetStreamState()
+        processMessageQueue()
+      }
+      return
+    }
+  }
+
   // 对于非内部消息，或详细模式下的所有消息，正常处理
   // 如果有处理指示器，在显示真实内容前先移除
   if (!isInternal && state === 'final' && _processingIndicator) {
@@ -898,6 +934,13 @@ function handleChatEvent(payload) {
 
     resetStreamState()
     processMessageQueue()
+
+    // 预热完成后自动 compact 清理上下文（不保留预热对话）
+    if (_warmupActive) {
+      _warmupActive = false
+      console.log('[warmup] Response received, sending /compact')
+      wsClient.chatSend(_sessionKey, '/compact').catch(() => {})
+    }
     return
   }
 
@@ -1385,6 +1428,8 @@ export async function loadHistory() {
       clearMessages()
       local.forEach(msg => {
         const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date()
+        // 过滤预热消息和 compact 响应
+        if (isFilteredMessage(msg.content)) return
         // Only render known roles to avoid displaying system/protocol messages
         if (msg.role === 'user') appendUserMessage(msg.content || '', msg.attachments || null, msgTime)
         else if (msg.role === 'assistant') appendAiMessage(msg.content || '', msgTime)
@@ -1416,9 +1461,13 @@ export async function loadHistory() {
 
     // 有待发送/发送中的本地消息时，不要全量重绘，避免覆盖本地乐观渲染
     if (hasExisting && (_isSending || _isStreaming || _messageQueue.length > 0)) {
-      // Only save user and assistant messages
+      // Only save user and assistant messages (filter warmup/compact)
       saveMessages(chatResult.messages
-        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .filter(m => {
+          if (m.role !== 'user' && m.role !== 'assistant') return false
+          const c = extractContent(m)
+          return !isFilteredMessage(c?.text)
+        })
         .map(m => {
           const c = extractContent(m)
           return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
@@ -1429,6 +1478,8 @@ export async function loadHistory() {
     clearMessages()
     deduped.forEach(msg => {
       const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date()
+      // 过滤预热消息和 compact 响应
+      if (isFilteredMessage(msg.text)) return
       // Only render known roles
       if (msg.role === 'user') {
         appendUserMessage(msg.text, msg.images?.length ? msg.images.map(i => ({ content: i.data, mimeType: i.mediaType, category: 'image' })) : null, msgTime)
@@ -1439,9 +1490,13 @@ export async function loadHistory() {
     })
     // 将通知条按时间插到对应位置
     insertNotifyItemsInOrder(notifyItems)
-    // Only save user and assistant messages to localStorage (filter out system/protocol messages)
+    // Only save user and assistant messages to localStorage (filter out system/protocol/warmup/compact messages)
     saveMessages(chatResult.messages
-      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .filter(m => {
+        if (m.role !== 'user' && m.role !== 'assistant') return false
+        const c = extractContent(m)
+        return !isFilteredMessage(c?.text)
+      })
       .map(m => {
         const c = extractContent(m)
         return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }

@@ -1,6 +1,6 @@
 import './style.css'
 import { wsClient } from './api-client.js'
-import { createChatPage, initChatUI, setSessionKey, switchToSession, loadHistory } from './chat-ui.js'
+import { createChatPage, initChatUI, setSessionKey, switchToSession, loadHistory, warmupSession } from './chat-ui.js'
 import { initI18n, t, onLangChange } from './i18n.js'
 import { setUserRole } from './commands.js'
 import { initTheme } from './theme.js'
@@ -260,6 +260,7 @@ async function initApp() {
               const result = await api.createSession(null, agentId, agentName)
               if (result.gateway_session_id) {
                 switchToSession(result.gateway_session_id, agentName)
+                warmupSession(result.gateway_session_id)
                 requestAnimationFrame(() => loadHistory())
               } else {
                 console.error('[initApp] Failed to create session:', result)
