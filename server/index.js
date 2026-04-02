@@ -142,7 +142,8 @@ const GATEWAY_RETRY_COUNT = 3;
 const GATEWAY_RETRY_DELAY = 1000;
 const PROGRESS_STALE_TIMEOUT = 120000;
 
-// 自动 compact 配置：每 N 轮用户消息后自动压缩上下文
+// 首字延迟追踪（sessionKey → chat.send 发送时间戳）
+const _firstDeltaPending = new Map();
 const AUTO_COMPACT_ROUNDS = parseInt(process.env.AUTO_COMPACT_ROUNDS, 10) || 10;
 const _sessionMsgCount = new Map(); // sessionKey → user message count
 
@@ -452,6 +453,13 @@ async function handleUpstreamMessage(sid, rawData) {
         const payload = msg.payload || {};
         const state = payload.state;
         if (state === 'delta') {
+          // 首字延迟计时
+          const fdpSKey = payload.sessionKey || session.progress?.sessionKey;
+          if (fdpSKey && _firstDeltaPending.has(fdpSKey)) {
+            const elapsed = Date.now() - _firstDeltaPending.get(fdpSKey);
+            log.info(`[perf] 首字延迟 ${elapsed}ms sessionKey=${fdpSKey} count=${_sessionMsgCount.get(fdpSKey) || 0}`);
+            _firstDeltaPending.delete(fdpSKey);
+          }
           setSessionProgress(session, {
             isBusy: true,
             sessionKey: payload.sessionKey || session.progress?.sessionKey || '',
@@ -1474,7 +1482,13 @@ app.post('/api/send', async (req, res) => {
       _sessionMsgCount.set(sKey, (_sessionMsgCount.get(sKey) || 0) + 1);
     }
 
-    // 诊断日志
+    // 性能计时：记录发送时间
+    const _sendTime = Date.now();
+    log.info(`[perf] chat.send 开始 [${sid}] sessionKey=${sKey || 'none'} count=${_sessionMsgCount.get(sKey) || 0}`);
+    // 记录首字延迟追踪
+    if (sKey && !_firstDeltaPending.has(sKey)) {
+      _firstDeltaPending.set(sKey, _sendTime);
+    }
     const userId = session.jwtUserId;
     const username = session.username;
     log.info(`[chat.send] Session: ${sid.slice(0, 8)}..., User: ${username || 'N/A'} (ID: ${userId || 'N/A'}), SessionKey: ${params?.sessionKey || 'none'}`);
