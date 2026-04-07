@@ -6,7 +6,7 @@ import { t, formatRelativeTime } from './i18n.js'
 import { initSettings, showSettings, getDetailedMode } from './settings.js'
 import { saveMessage, saveMessages, getLocalMessages, clearSessionMessages, isStorageAvailable, saveSessionInfo } from './message-db.js'
 import { requestPermission, showNotification, isSupported as isNotifySupported } from './notify.js'
-import { initSessionPicker, setPickerSessionKey, showSessionPicker, promptRenameSession } from './session-picker.js'
+import { initSessionPicker, setPickerSessionKey, showSessionPicker, promptNewSession, promptRenameSession } from './session-picker.js'
 import { authManager } from './auth.js'
 import { api } from './api.js'
 
@@ -226,6 +226,7 @@ export function createChatPage() {
         <div class="title" id="session-title">ClawApp</div>
         <button class="rename-btn" id="rename-btn" title="${t('session.rename')}">${SVG_EDIT}</button>
       </div>
+      <button class="session-action-btn" id="new-chat-btn" title="${t('session.new')}">＋</button>
       <button class="settings-btn" id="reload-btn" title="${t('settings.reload')}">${SVG_RELOAD}</button>
       <button class="settings-btn" id="settings-btn">${SVG_SETTINGS}</button>
     </div>
@@ -434,6 +435,7 @@ export function initChatUI(onSettings) {
     // 已授权，无需任何操作
   }
 
+  document.getElementById('new-chat-btn').onclick = () => promptNewSession()
   document.getElementById('reload-btn').onclick = () => location.reload()
   document.getElementById('settings-btn').onclick = () => showSettings()
   document.getElementById('session-title').onclick = () => showSessionPicker()

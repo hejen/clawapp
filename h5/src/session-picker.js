@@ -135,7 +135,7 @@ export async function refreshSessionList() {
 }
 
 /** 新建会话弹窗 */
-async function promptNewSession() {
+export async function promptNewSession() {
   closeSessionPicker()
 
   // Fetch available agents from backend
