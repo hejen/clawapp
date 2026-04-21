@@ -1,7 +1,7 @@
 {
-  "name": "ClawApp - OpenClaw 移动端",
-  "short_name": "ClawApp",
-  "description": "OpenClaw AI 智能体平台移动端客户端",
+  "name": "YezAge 代谢伙伴",
+  "short_name": "YezAge",
+  "description": "YezAge 代谢伙伴",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

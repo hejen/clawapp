@@ -84,7 +84,7 @@ function createSetupPage() {
       </div>
     </div>
     <div class="setup-footer">
-      <a href="https://github.com/openclaw/openclaw-chat" target="_blank" rel="noopener">OpenClaw Chat</a>
+      <a href="https://github.com/openclaw/openclaw-chat" target="_blank" rel="noopener">YezAge 代谢伙伴</a>
     </div>
   `
   return page

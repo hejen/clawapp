@@ -7,8 +7,8 @@ const LANG_KEY = 'clawapp-lang'
 const messages = {
   'zh-CN': {
     // 连接页
-    'app.title': 'OpenClaw Chat',
-    'app.subtitle': '连接到你的 OpenClaw 智能体',
+    'app.title': 'YezAge 代谢伙伴',
+    'app.subtitle': '连接到你的 YezAge 代谢伙伴',
     'setup.host': '服务器地址',
     'setup.host.placeholder': '服务器地址，如 192.168.1.100:3210',
     'setup.token': 'Token',
@@ -26,7 +26,7 @@ const messages = {
     'setup.tips.token.title': 'Token 填什么？',
     'setup.tips.token.desc': '连接时使用的认证密码。\n• 如果忘记了，可以在电脑上查看 server/.env 文件中的 PROXY_TOKEN\n• 也可以重新运行安装脚本重新设置',
     'setup.tips.doc': '查看完整文档',
-    'setup.firstrun.title': '欢迎使用 OpenClaw Chat',
+    'setup.firstrun.title': '欢迎使用 YezAge 代谢伙伴',
     'setup.firstrun.subtitle': '首次启动，请设置你的连接密码',
     'setup.firstrun.password': '设置密码',
     'setup.firstrun.password.placeholder': '输入你的连接密码（至少 4 位）',
@@ -140,7 +140,7 @@ const messages = {
     'settings.reload': '重新加载页面',
     'settings.disconnect': '断开连接',
     // 关于
-    'about.title': '关于 OpenClaw Chat',
+    'about.title': '关于 YezAge 代谢伙伴',
     'about.version': '版本',
     'about.homepage': '官网',
     'about.github': '开源仓库',
@@ -150,7 +150,7 @@ const messages = {
     'about.license': '开源协议',
     'about.copyright': '© 2025 晴辰云',
     // 引导
-    'guide.welcome': '欢迎使用 OpenClaw Chat 👋',
+    'guide.welcome': '欢迎使用 YezAge 代谢伙伴 👋',
     'guide.tip1': '💬 在底部输入框发送消息与 AI 聊天',
     'guide.tip2': '📋 点击顶部标题可切换/管理会话',
     'guide.tip3': '⚙️ 右上角齿轮进入设置（主题/语言）',
@@ -185,7 +185,7 @@ const messages = {
     'notify.ai.reply': 'AI 助手',
     'notify.media': '[媒体消息]',
     // Login page
-    'login.title': 'OpenClaw Chat',
+    'login.title': 'YezAge 代谢伙伴',
     'login.subtitle': '登录以继续',
     'login.tab.login': '登录',
     'login.tab.register': '注册',
@@ -205,8 +205,8 @@ const messages = {
     'settings.logout': '退出登录',
   },
   'en': {
-    'app.title': 'OpenClaw Chat',
-    'app.subtitle': 'Connect to your OpenClaw agent',
+    'app.title': 'YezAge 代谢伙伴',
+    'app.subtitle': 'Connect to your YezAge 代谢伙伴',
     'setup.host': 'Server Address',
     'setup.host.placeholder': 'Server address, e.g. 192.168.1.100:3210',
     'setup.token': 'Token',
@@ -224,7 +224,7 @@ const messages = {
     'setup.tips.token.title': 'What is Token?',
     'setup.tips.token.desc': 'The connection password for authentication.\n• If forgotten, check PROXY_TOKEN in server/.env on your PC\n• Or re-run the install script to reset it',
     'setup.tips.doc': 'Full Documentation',
-    'setup.firstrun.title': 'Welcome to OpenClaw Chat',
+    'setup.firstrun.title': 'Welcome to YezAge 代谢伙伴',
     'setup.firstrun.subtitle': 'First time? Set your connection password',
     'setup.firstrun.password': 'Set Password',
     'setup.firstrun.password.placeholder': 'Enter your password (min 4 chars)',
@@ -331,7 +331,7 @@ const messages = {
     'settings.reload': 'Reload Page',
     'settings.disconnect': 'Disconnect',
     // 关于
-    'about.title': 'About OpenClaw Chat',
+    'about.title': 'About YezAge 代谢伙伴',
     'about.version': 'Version',
     'about.homepage': 'Website',
     'about.github': 'GitHub',
@@ -340,7 +340,7 @@ const messages = {
     'about.feishu': 'Feishu Group',
     'about.license': 'License',
     'about.copyright': '© 2025 QingchenCloud',
-    'guide.welcome': 'Welcome to OpenClaw Chat 👋',
+    'guide.welcome': 'Welcome to YezAge 代谢伙伴 👋',
     'guide.tip1': '💬 Type in the input box below to chat with AI',
     'guide.tip2': '📋 Tap the title bar to switch/manage sessions',
     'guide.tip3': '⚙️ Tap the gear icon for settings (theme/language)',
@@ -367,7 +367,7 @@ const messages = {
     'notify.ai.reply': 'AI Assistant',
     'notify.media': '[Media message]',
     // Login page
-    'login.title': 'OpenClaw Chat',
+    'login.title': 'YezAge 代谢伙伴',
     'login.subtitle': 'Login to continue',
     'login.tab.login': 'Login',
     'login.tab.register': 'Register',

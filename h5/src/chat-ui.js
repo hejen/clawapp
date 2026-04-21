@@ -223,7 +223,7 @@ export function createChatPage() {
     <div class="chat-header">
       <div class="status-dot" id="status-dot"></div>
       <div class="title-group">
-        <div class="title" id="session-title">ClawApp</div>
+        <div class="title" id="session-title">YezAge 代谢伙伴</div>
         <button class="rename-btn" id="rename-btn" title="${t('session.rename')}">${SVG_EDIT}</button>
       </div>
       <button class="session-action-btn" id="new-chat-btn" title="${t('session.new')}">＋</button>
@@ -753,7 +753,7 @@ function handleEvent(msg) {
 /** 处理 OpenClaw Gateway 主动推送的 system.notify 事件 */
 function handleSystemNotify(payload) {
   if (!payload) return
-  const title = payload.title || 'OpenClaw'
+  const title = payload.title || 'YezAge 代谢伙伴'
   const body = payload.body || payload.message || payload.text || ''
   const sentAt = payload._sentAt ? new Date(payload._sentAt) : new Date()
   appendSystemNotifyItem(title, body, sentAt)
@@ -1518,7 +1518,7 @@ function insertNotifyItemsInOrder(items) {
 
   for (const n of sorted) {
     const sentAtMs = n._sentAt || 0
-    const title = n.title || 'OpenClaw'
+    const title = n.title || 'YezAge 代谢伙伴'
     const body = n.body || n.message || n.text || ''
 
     // DOM 内去重

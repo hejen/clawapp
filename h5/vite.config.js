@@ -20,8 +20,8 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg'],
         manifest: {
-          name: 'ClawApp',
-          short_name: 'ClawApp',
+          name: 'YezAge 代谢伙伴',
+          short_name: 'YezAge',
           description: 'AI Assistant Mobile Client',
           theme_color: '#1a1a2e',
           background_color: '#1a1a2e',

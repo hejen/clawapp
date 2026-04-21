@@ -138,7 +138,7 @@ export function showSettings() {
         <div class="settings-about-header">
           <span class="settings-about-logo">💬</span>
           <div>
-            <div class="settings-about-name">OpenClaw Chat</div>
+            <div class="settings-about-name">YezAge 代谢伙伴</div>
             <div class="settings-about-ver">${t('about.version')} ${__APP_VERSION__}</div>
           </div>
         </div>

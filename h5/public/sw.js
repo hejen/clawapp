@@ -116,7 +116,7 @@ async function networkFirst(request) {
 self.addEventListener('push', event => {
   console.log('[SW] Push received:', event.data ? event.data.text() : 'no data')
   
-  let data = { title: 'ClawApp', body: '您有新消息' }
+  let data = { title: 'YezAge 代谢伙伴', body: '您有新消息' }
   
   if (event.data) {
     try {

@@ -2,7 +2,7 @@ import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.openclaw.chat',
-  appName: 'OpenClaw Chat',
+  appName: 'YezAge 代谢伙伴',
   webDir: 'dist',
   bundledWebRuntime: false,
 
